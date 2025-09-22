@@ -532,20 +532,26 @@ async def xcom_values():
     """
     return HTMLResponse(content=html_content)
 
-app_with_metadata = {
-    "app": app,
-    "url_prefix": "/plugins/aiida",   # avoid collisions with /api/v1
-    "name": "AiiDAPlugin",
-}
+#app_with_metadata = {
+#    "app": app,
+#    "url_prefix": "/plugins/aiida",   # avoid collisions with /api/v1
+#    "name": "AiiDAPlugin",
+#}
 
 class AirflowTestPlugin(AirflowPlugin):
     name = "aiida_plugin"
     macros = [plugin_macro]
-    fastapi_apps = [app_with_metadata]
-
-    appbuilder_menu_items = [
-        {
-            "name": "DAG Run Events",
-            "href": "/plugins/aiida/dashboard"
-        }
+    fastapi_apps = [
+        {"app": app, "url_prefix": "/plugins/aiida", "name": "Aiida"}
     ]
+    # Add a top-nav item pointing to your page
+    menu_items = [
+        {"name": "DAG Run Events", "href": "/plugins/aiida/dashboard"}
+    ]
+
+    #appbuilder_menu_items = [
+    #    {
+    #        "name": "DAG Run Events",
+    #        "href": "/plugins/aiida/dashboard"
+    #    }
+    #]
