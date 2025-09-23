@@ -543,9 +543,9 @@ class AirflowTestPlugin(AirflowPlugin):
     macros = [plugin_macro]
     fastapi_apps = [app_with_metadata]
 
-    appbuilder_menu_items = [
-        {
-            "name": "DAG Run Events",
-            "href": "/plugins/aiida/dashboard"
-        }
-    ]
+    # appbuilder_menu_items = [
+    #     {
+    #         "name": "DAG Run Events",
+    #         "href": "/plugins/aiida/dashboard"
+    #     }
+    # ]
