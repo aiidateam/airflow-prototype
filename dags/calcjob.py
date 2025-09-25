@@ -8,23 +8,24 @@ from airflow.operators.python import PythonOperator
 from airflow.sdk import DAG, task, Param, get_current_context
 from airflow.utils.task_group import TaskGroup
 from pathlib import Path
-from typing import Tuple
 
 import sys
-sys.path.append("/Users/alexgo/code/airflow/dags")
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from transport.ssh import AsyncSshTransport
 
 import os
-AIRFLOW_HOME_ = os.getenv("AIRFLOW_HOME", None)
+AIRFLOW_HOME_ = os.getenv("AIRFLOW_HOME", os.path.expanduser("~/airflow"))
 if AIRFLOW_HOME_ is None:
     raise ImportError("Could not find AIRFLOW_HOME.")
 AIRFLOW_HOME = Path(AIRFLOW_HOME_)
 
-LOCAL_WORKDIR = AIRFLOW_HOME / "local_workdir"
-LOCAL_WORKDIR.mkdir(exist_ok=True)
+LOCAL_WORKDIR = AIRFLOW_HOME / "storage" / "local_workdir"
+LOCAL_WORKDIR.mkdir(exist_ok=True, parents=True)
 
-REMOTE_WORKDIR = AIRFLOW_HOME / "remote_workdir"
-REMOTE_WORKDIR.mkdir(exist_ok=True)
+REMOTE_WORKDIR = AIRFLOW_HOME / "storage" / "remote_workdir"
+REMOTE_WORKDIR.mkdir(exist_ok=True, parents=True)
 
 ######################
 ### CORE OPERATORS ###
