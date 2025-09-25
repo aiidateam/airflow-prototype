@@ -35,7 +35,6 @@ def get_transport_queue() -> TransportQueue:
     """Return a per-process shared TransportQueue instance."""
     global _TRANSPORT_QUEUE
     if _TRANSPORT_QUEUE is None:
-        Path(f"/home/ali/airflow/{uuid.uuid4()}").write_text("bing")
         _TRANSPORT_QUEUE = TransportQueue()
     return _TRANSPORT_QUEUE
 

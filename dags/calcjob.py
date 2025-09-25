@@ -20,11 +20,11 @@ if AIRFLOW_HOME_ is None:
     raise ImportError("Could not find AIRFLOW_HOME.")
 AIRFLOW_HOME = Path(AIRFLOW_HOME_)
 
-LOCAL_WORKDIR = AIRFLOW_HOME / "local_workdir"
-LOCAL_WORKDIR.mkdir(exist_ok=True)
+LOCAL_WORKDIR = AIRFLOW_HOME / "storage" / "local_workdir"
+LOCAL_WORKDIR.mkdir(exist_ok=True, parents=True)
 
-REMOTE_WORKDIR = AIRFLOW_HOME / "remote_workdir"
-REMOTE_WORKDIR.mkdir(exist_ok=True)
+REMOTE_WORKDIR = AIRFLOW_HOME / "storage" / "remote_workdir"
+REMOTE_WORKDIR.mkdir(exist_ok=True, parents=True)
 
 ######################
 ### CORE OPERATORS ###
