@@ -14,6 +14,18 @@ import sys
 sys.path.append("/Users/alexgo/code/airflow/dags")
 from transport.ssh import AsyncSshTransport
 
+import os
+AIRFLOW_HOME_ = os.getenv("AIRFLOW_HOME", None)
+if AIRFLOW_HOME_ is None:
+    raise ImportError("Could not find AIRFLOW_HOME.")
+AIRFLOW_HOME = Path(AIRFLOW_HOME_)
+
+LOCAL_WORKDIR = AIRFLOW_HOME / "local_workdir"
+LOCAL_WORKDIR.mkdir(exist_ok=True)
+
+REMOTE_WORKDIR = AIRFLOW_HOME / "remote_workdir"
+REMOTE_WORKDIR.mkdir(exist_ok=True)
+
 ######################
 ### CORE OPERATORS ###
 ######################
@@ -196,8 +208,8 @@ def AiidDAG(**kwargs):
     kwargs['params'].update({
         # TODO move to nested transport params
         "machine": Param("localhost", type="string", section="Submission config"),
-        "remote_workdir": Param("/Users/alexgo/code/airflow/remote_workdir", type="string", section="Submission config"),
-        "local_workdir": Param("/Users/alexgo/code/airflow/local_workdir", type="string", section="Submission config"),
+        "remote_workdir": Param(str(REMOTE_WORKDIR), type="string", section="Submission config"),
+        "local_workdir": Param(str(LOCAL_WORKDIR), type="string", section="Submission config"),
         })
     return DAG(**kwargs)
 
@@ -276,7 +288,7 @@ echo "$(({x}+{y}))" > file.out
 if __name__ == "__main__":
     dag.test(
         run_conf={"machine": "localhost",
-                  "local_workdir": "/Users/alexgo/code/airflow/local_workdir",
-                  "remote_workdir": "/Users/alexgo/code/airflow/remote_workdir",
+                  "local_workdir":  LOCAL_WORKDIR,
+                  "remote_workdir": REMOTE_WORKDIR,
                   }
     )
