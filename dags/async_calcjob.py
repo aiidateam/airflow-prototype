@@ -10,7 +10,7 @@ from pathlib import Path
 from async_calcjob_trigger import AsyncCalcJobTrigger
 from typing import Any
 
-from aiida import load_profile
+from aiida import load_profile, orm
 from aiida.common.links import LinkType
 
 load_profile()
@@ -46,38 +46,31 @@ class CalcJobTaskOperator(BaseOperator):
         self.to_upload_files = to_upload_files or {}
         self.to_receive_files = to_receive_files or {}
 
-    def _convert_to_aiida_data(self, key: str, value: Any):
+    def _convert_to_aiida_data(self, value: Any):
         """Convert Python value to appropriate AiiDA data type."""
-        try:
-            from aiida import orm
             
-            if isinstance(value, str):
-                return orm.Str(value)
-            elif isinstance(value, int):
-                return orm.Int(value)
-            elif isinstance(value, float):
-                return orm.Float(value)
-            elif isinstance(value, bool):
-                return orm.Bool(value)
-            elif isinstance(value, dict):
-                return orm.Dict(value)
-            elif isinstance(value, (list, tuple)):
-                # Store as Dict with indices
-                return orm.Dict({str(i): v for i, v in enumerate(value)})
-            else:
-                # Fall back to string representation
-                return orm.Str(str(value))
-        except Exception as e:
-            print(f"Could not convert {key}={value} to AiiDA data: {e}")
-            return None
+        if isinstance(value, str):
+            return orm.Str(value)
+        elif isinstance(value, int):
+            return orm.Int(value)
+        elif isinstance(value, float):
+            return orm.Float(value)
+        elif isinstance(value, bool):
+            return orm.Bool(value)
+        elif isinstance(value, dict):
+            return orm.Dict(value)
+        elif isinstance(value, (list, tuple)):
+            return orm.List(value)
+        else:
+            msg = f"Couldn't convert data: <{value}> to aiida data node."
+            raise RuntimeError(msg)
 
     def _create_aiida_calcjob_node(self, context: dict) -> int | None:
         """Create AiiDA CalcJobNode from all available task parameters."""
             
-        from aiida import orm
-        
         # Create CalcJobNode
         node = orm.CalcJobNode()
+        # NOTE: `dag_id` not available in context before running
         node.label = f"airflow_{context['dag'].dag_id}_{context['run_id'][:8]}"
         node.description = f"CalcJob from Airflow DAG {context['dag'].dag_id}"
         
@@ -113,7 +106,7 @@ class CalcJobTaskOperator(BaseOperator):
             if key in ['to_upload_files', 'to_receive_files', 'submission_script']:
                 continue  # Skip these internal parameters
                 
-            aiida_data = self._convert_to_aiida_data(key, value)
+            aiida_data = self._convert_to_aiida_data(value)
             if aiida_data:
                 aiida_data.store()
                 node.base.links.add_incoming(aiida_data, link_type=LinkType.INPUT_CALC, link_label=key)
@@ -125,35 +118,99 @@ class CalcJobTaskOperator(BaseOperator):
         # Store node PK in XCom for later use
         task_instance.xcom_push(key='aiida_node_pk', value=node.pk)
         
-        return node.pk
-
-    def _store_aiida_outputs(self, context: dict, event: dict):
-        """Store CalcJob outputs in AiiDA after completion."""
-            
-        from aiida import orm
-        
-        # Get the node PK we stored earlier
-        task_instance = context['task_instance']
-        node_pk = task_instance.xcom_pull(key='aiida_node_pk')
-        
-        if not node_pk:
-            print("✗ No AiiDA node PK found to store outputs")
-            return
-            
-        # Load the node
-        node = orm.load_node(node_pk)
-        
-        # Store job ID as output
-        if 'job_id' in event:
-            job_id_data = orm.Int(event['job_id'])
-            job_id_data.label = "remote_job_id"
-            job_id_data.store()
-            job_id_data.base.links.add_incoming(node, link_type='create', link_label='job_id')
-            print(f"✓ Stored job_id in AiiDA node {job_id_data.pk}")
-        
-        # TODO: After file retrieval, we could also store the output files
-        # This would require extending the trigger to provide file contents
-            
+    # def _store_aiida_outputs(self, context: dict, event: dict):
+    #     """Store CalcJob outputs in AiiDA after completion."""
+    #
+    #     from aiida import orm
+    #     from aiida.common.links import LinkType
+    #     from pathlib import Path
+    #
+    #     # Get the node PK we stored earlier
+    #     task_instance = context['task_instance']
+    #     node_pk = task_instance.xcom_pull(key='aiida_node_pk')
+    #
+    #     if not node_pk:
+    #         print("✗ No AiiDA node PK found to store outputs")
+    #         return
+    #
+    #     # Load the node
+    #     node = orm.load_node(node_pk)
+    #
+    #     # Store job ID as output
+    #     if 'job_id' in event:
+    #         job_id_data = orm.Int(event['job_id'])
+    #         job_id_data.label = "remote_job_id"
+    #         job_id_data.store()
+    #         node.base.links.add_incoming(job_id_data, link_type=LinkType.CREATE, link_label='job_id')
+    #         print(f"✓ Stored job_id {event['job_id']} in AiiDA node {job_id_data.pk}")
+    #
+    #     # Store exit code
+    #     if 'exit_code' in event:
+    #         node.set_exit_status(event['exit_code'])
+    #         print(f"✓ Set exit code: {event['exit_code']}")
+    #
+    #     # Store retrieved files as AiiDA SinglefileData nodes
+    #     if 'retrieved_files' in event and event['retrieved_files']:
+    #         retrieved_folder = orm.FolderData()
+    #
+    #         for remote_filename, local_filename in event['retrieved_files'].items():
+    #             local_file_path = Path(self.local_workdir) / local_filename
+    #
+    #             if local_file_path.exists():
+    #                 # Store individual files as SinglefileData
+    #                 single_file = orm.SinglefileData(file=str(local_file_path))
+    #                 single_file.label = f"output_{remote_filename}"
+    #                 single_file.description = f"Retrieved file: {remote_filename}"
+    #                 single_file.store()
+    #                 node.base.links.add_incoming(single_file, link_type=LinkType.CREATE, 
+    #                                         link_label=f"output_{remote_filename.replace('.', '_')}")
+    #
+    #                 # Also add to the folder
+    #                 retrieved_folder.base.repository.put_object_from_file(
+    #                     str(local_file_path), local_filename
+    #                 )
+    #                 print(f"✓ Stored output file {remote_filename} as AiiDA node {single_file.pk}")
+    #             else:
+    #                 print(f"✗ Expected output file not found: {local_file_path}")
+    #
+    #         # Store the complete retrieved folder
+    #         if retrieved_folder.base.repository.list_object_names():
+    #             retrieved_folder.label = "retrieved_files"
+    #             retrieved_folder.description = "All retrieved files from CalcJob"
+    #             retrieved_folder.store()
+    #             node.base.links.add_incoming(retrieved_folder, link_type=LinkType.CREATE, 
+    #                                     link_label='retrieved')
+    #             print(f"✓ Stored retrieved folder as AiiDA node {retrieved_folder.pk}")
+    #
+    #     # Store any additional metadata from the event
+    #     if 'metadata' in event:
+    #         metadata_dict = orm.Dict(event['metadata'])
+    #         metadata_dict.label = "calcjob_metadata"
+    #         metadata_dict.store()
+    #         node.base.links.add_incoming(metadata_dict, link_type=LinkType.CREATE, 
+    #                                 link_label='metadata')
+    #         print(f"✓ Stored metadata in AiiDA node {metadata_dict.pk}")
+    #
+    #     # Store stdout/stderr if available
+    #     for stream_name in ['stdout', 'stderr']:
+    #         if stream_name in event and event[stream_name]:
+    #             stream_content = orm.Str(event[stream_name])
+    #             stream_content.label = f"calcjob_{stream_name}"
+    #             stream_content.store()
+    #             node.base.links.add_incoming(stream_content, link_type=LinkType.CREATE, 
+    #                                     link_label=stream_name)
+    #             print(f"✓ Stored {stream_name} in AiiDA node {stream_content.pk}")
+    #
+    #     # Mark the calculation as finished
+    #     if 'exit_code' in event:
+    #         if event['exit_code'] == 0:
+    #             node.set_process_state('finished')
+    #             print("✓ Marked CalcJob as finished successfully")
+    #         else:
+    #             node.set_process_state('excepted')
+    #             print(f"✗ Marked CalcJob as excepted (exit code: {event['exit_code']})")
+    #
+    #     print(f"✓ Completed storing outputs for AiiDA CalcJobNode {node.pk}")
 
     def execute(self, context: Context):
         # Create AiiDA node before deferring
@@ -181,9 +238,11 @@ class CalcJobTaskOperator(BaseOperator):
     def execute_complete(self, context: Context, event: dict):
         """Complete the deferred operation."""
         self.log.info(f"CalcJob completed with event: {event}")
+        
+        # Store outputs in AiiDA
+        # self._store_aiida_outputs(context, event)
+        
         return event
-
-
 
 
 #################
@@ -271,7 +330,7 @@ echo "$(({x}+{y}))" > file.out
 if __name__ == "__main__":
     dag.test(
         run_conf={"machine": "localhost",
-                  "local_workdir": LOCAL_WORKDIR,
-                  "remote_workdir": REMOTE_WORKDIR,
+                  "local_workdir": str(LOCAL_WORKDIR),
+                  "remote_workdir": str(REMOTE_WORKDIR),
                   }
     )
