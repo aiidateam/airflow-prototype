@@ -32,6 +32,28 @@ REMOTE_WORKDIR.mkdir(exist_ok=True, parents=True)
 ### CORE OPERATORS ###
 ######################
 
+def store_calcjob_outputs(context):
+    """Callback to store CalcJob outputs in AiiDA."""
+    print("CalcJob succeeded, storing AiiDA outputs...")
+    
+    # Get the event data
+    event = context['task_instance'].xcom_pull(key='calcjob_event')
+    node_pk = context['task_instance'].xcom_pull(key='aiida_node_pk')
+    
+    if not event:
+        print("No calcjob event found to store")
+        return
+    
+    if not node_pk:
+        print("✗ No AiiDA node PK found to store outputs")
+        return
+    
+    # Get the operator instance to access its parameters
+    task = context['task']
+    
+    # Call the storage method
+    task._store_aiida_outputs_direct(context, event, node_pk)
+
 
 class CalcJobTaskOperator(BaseOperator):
     template_fields = ["machine", "local_workdir", "remote_workdir"]
@@ -117,100 +139,95 @@ class CalcJobTaskOperator(BaseOperator):
         
         # Store node PK in XCom for later use
         task_instance.xcom_push(key='aiida_node_pk', value=node.pk)
+
+    def _store_aiida_outputs_direct(self, context: dict, event: dict, node_pk: int):
+        """Store CalcJob outputs in AiiDA after completion."""
         
-    # def _store_aiida_outputs(self, context: dict, event: dict):
-    #     """Store CalcJob outputs in AiiDA after completion."""
-    #
-    #     from aiida import orm
-    #     from aiida.common.links import LinkType
-    #     from pathlib import Path
-    #
-    #     # Get the node PK we stored earlier
-    #     task_instance = context['task_instance']
-    #     node_pk = task_instance.xcom_pull(key='aiida_node_pk')
-    #
-    #     if not node_pk:
-    #         print("✗ No AiiDA node PK found to store outputs")
-    #         return
-    #
-    #     # Load the node
-    #     node = orm.load_node(node_pk)
-    #
-    #     # Store job ID as output
-    #     if 'job_id' in event:
-    #         job_id_data = orm.Int(event['job_id'])
-    #         job_id_data.label = "remote_job_id"
-    #         job_id_data.store()
-    #         node.base.links.add_incoming(job_id_data, link_type=LinkType.CREATE, link_label='job_id')
-    #         print(f"✓ Stored job_id {event['job_id']} in AiiDA node {job_id_data.pk}")
-    #
-    #     # Store exit code
-    #     if 'exit_code' in event:
-    #         node.set_exit_status(event['exit_code'])
-    #         print(f"✓ Set exit code: {event['exit_code']}")
-    #
-    #     # Store retrieved files as AiiDA SinglefileData nodes
-    #     if 'retrieved_files' in event and event['retrieved_files']:
-    #         retrieved_folder = orm.FolderData()
-    #
-    #         for remote_filename, local_filename in event['retrieved_files'].items():
-    #             local_file_path = Path(self.local_workdir) / local_filename
-    #
-    #             if local_file_path.exists():
-    #                 # Store individual files as SinglefileData
-    #                 single_file = orm.SinglefileData(file=str(local_file_path))
-    #                 single_file.label = f"output_{remote_filename}"
-    #                 single_file.description = f"Retrieved file: {remote_filename}"
-    #                 single_file.store()
-    #                 node.base.links.add_incoming(single_file, link_type=LinkType.CREATE, 
-    #                                         link_label=f"output_{remote_filename.replace('.', '_')}")
-    #
-    #                 # Also add to the folder
-    #                 retrieved_folder.base.repository.put_object_from_file(
-    #                     str(local_file_path), local_filename
-    #                 )
-    #                 print(f"✓ Stored output file {remote_filename} as AiiDA node {single_file.pk}")
-    #             else:
-    #                 print(f"✗ Expected output file not found: {local_file_path}")
-    #
-    #         # Store the complete retrieved folder
-    #         if retrieved_folder.base.repository.list_object_names():
-    #             retrieved_folder.label = "retrieved_files"
-    #             retrieved_folder.description = "All retrieved files from CalcJob"
-    #             retrieved_folder.store()
-    #             node.base.links.add_incoming(retrieved_folder, link_type=LinkType.CREATE, 
-    #                                     link_label='retrieved')
-    #             print(f"✓ Stored retrieved folder as AiiDA node {retrieved_folder.pk}")
-    #
-    #     # Store any additional metadata from the event
-    #     if 'metadata' in event:
-    #         metadata_dict = orm.Dict(event['metadata'])
-    #         metadata_dict.label = "calcjob_metadata"
-    #         metadata_dict.store()
-    #         node.base.links.add_incoming(metadata_dict, link_type=LinkType.CREATE, 
-    #                                 link_label='metadata')
-    #         print(f"✓ Stored metadata in AiiDA node {metadata_dict.pk}")
-    #
-    #     # Store stdout/stderr if available
-    #     for stream_name in ['stdout', 'stderr']:
-    #         if stream_name in event and event[stream_name]:
-    #             stream_content = orm.Str(event[stream_name])
-    #             stream_content.label = f"calcjob_{stream_name}"
-    #             stream_content.store()
-    #             node.base.links.add_incoming(stream_content, link_type=LinkType.CREATE, 
-    #                                     link_label=stream_name)
-    #             print(f"✓ Stored {stream_name} in AiiDA node {stream_content.pk}")
-    #
-    #     # Mark the calculation as finished
-    #     if 'exit_code' in event:
-    #         if event['exit_code'] == 0:
-    #             node.set_process_state('finished')
-    #             print("✓ Marked CalcJob as finished successfully")
-    #         else:
-    #             node.set_process_state('excepted')
-    #             print(f"✗ Marked CalcJob as excepted (exit code: {event['exit_code']})")
-    #
-    #     print(f"✓ Completed storing outputs for AiiDA CalcJobNode {node.pk}")
+        from aiida import orm
+        from aiida.common.links import LinkType
+        from pathlib import Path
+        
+        # Load the node
+        node = orm.load_node(node_pk)
+        
+        # Store job ID as output
+        if 'job_id' in event:
+            job_id_data = orm.Int(event['job_id'])
+            job_id_data.label = "remote_job_id"
+            job_id_data.store()
+            node.base.links.add_incoming(job_id_data, link_type=LinkType.CREATE, link_label='job_id')
+            print(f"✓ Stored job_id {event['job_id']} in AiiDA node {job_id_data.pk}")
+        
+        # Store exit code
+        if 'exit_code' in event:
+            node.set_exit_status(event['exit_code'])
+            print(f"✓ Set exit code: {event['exit_code']}")
+        
+        # Get to_receive_files from the prepare task via XCom
+        to_receive_files = context['task_instance'].xcom_pull(task_ids='prepare', key='to_receive_files')
+        
+        # Store retrieved files as AiiDA SinglefileData nodes
+        if to_receive_files:
+            retrieved_folder = orm.FolderData()
+            
+            for remote_filename, local_filename in to_receive_files.items():
+                local_file_path = Path(self.local_workdir) / local_filename
+                
+                if local_file_path.exists():
+                    # Store individual files as SinglefileData
+                    single_file = orm.SinglefileData(file=str(local_file_path))
+                    single_file.label = f"output_{remote_filename}"
+                    single_file.description = f"Retrieved file: {remote_filename}"
+                    single_file.store()
+                    node.base.links.add_incoming(single_file, link_type=LinkType.CREATE, 
+                                            link_label=f"output_{remote_filename.replace('.', '_')}")
+                    
+                    # Also add to the folder
+                    retrieved_folder.base.repository.put_object_from_file(
+                        str(local_file_path), local_filename
+                    )
+                    print(f"✓ Stored output file {remote_filename} as AiiDA node {single_file.pk}")
+                else:
+                    print(f"✗ Expected output file not found: {local_file_path}")
+            
+            # Store the complete retrieved folder
+            if retrieved_folder.base.repository.list_object_names():
+                retrieved_folder.label = "retrieved_files"
+                retrieved_folder.description = "All retrieved files from CalcJob"
+                retrieved_folder.store()
+                node.base.links.add_incoming(retrieved_folder, link_type=LinkType.CREATE, 
+                                        link_label='retrieved')
+                print(f"✓ Stored retrieved folder as AiiDA node {retrieved_folder.pk}")
+        
+        # Store any additional metadata from the event
+        if 'metadata' in event:
+            metadata_dict = orm.Dict(event['metadata'])
+            metadata_dict.label = "calcjob_metadata"
+            metadata_dict.store()
+            node.base.links.add_incoming(metadata_dict, link_type=LinkType.CREATE, 
+                                    link_label='metadata')
+            print(f"✓ Stored metadata in AiiDA node {metadata_dict.pk}")
+        
+        # Store stdout/stderr if available
+        for stream_name in ['stdout', 'stderr']:
+            if stream_name in event and event[stream_name]:
+                stream_content = orm.Str(event[stream_name])
+                stream_content.label = f"calcjob_{stream_name}"
+                stream_content.store()
+                node.base.links.add_incoming(stream_content, link_type=LinkType.CREATE, 
+                                        link_label=stream_name)
+                print(f"✓ Stored {stream_name} in AiiDA node {stream_content.pk}")
+        
+        # Mark the calculation as finished
+        if 'exit_code' in event:
+            if event['exit_code'] == 0:
+                node.set_process_state('finished')
+                print("✓ Marked CalcJob as finished successfully")
+            else:
+                node.set_process_state('excepted')
+                print(f"✗ Marked CalcJob as excepted (exit code: {event['exit_code']})")
+        
+        print(f"✓ Completed storing outputs for AiiDA CalcJobNode {node.pk}")
 
     def execute(self, context: Context):
         # Create AiiDA node before deferring
@@ -239,8 +256,8 @@ class CalcJobTaskOperator(BaseOperator):
         """Complete the deferred operation."""
         self.log.info(f"CalcJob completed with event: {event}")
         
-        # Store outputs in AiiDA
-        # self._store_aiida_outputs(context, event)
+        # Store the event in XCom for potential use by callbacks
+        context['task_instance'].xcom_push(key='calcjob_event', value=event)
         
         return event
 
@@ -301,15 +318,16 @@ echo "$(({x}+{y}))" > file.out
     prepare_op = prepare(x="{{ params.x }}", y="{{ params.y }}", sleep="{{ params.sleep }}")
     to_upload_files, submission_script, to_receive_files = prepare_op["to_upload_files"], prepare_op["submission_script"], prepare_op["to_receive_files"]
 
-    calcjob_op = CalcJobTaskOperator(task_id="calcjob_task",
-                   machine="{{ params.machine }}",
-                   local_workdir="{{ params.local_workdir }}",
-                   remote_workdir="{{ params.remote_workdir }}",
-                   to_upload_files=to_upload_files,
-                   to_receive_files=to_receive_files,
-                   submission_script=submission_script,
-                )
-
+    calcjob_op = CalcJobTaskOperator(
+        task_id="calcjob_task",
+        machine="{{ params.machine }}",
+        local_workdir="{{ params.local_workdir }}",
+        remote_workdir="{{ params.remote_workdir }}",
+        to_upload_files=to_upload_files,
+        to_receive_files=to_receive_files,
+        submission_script=submission_script,
+        on_success_callback=store_calcjob_outputs  # Add this callback
+    )
 
     parse_op = parse(local_workdir="{{ params.local_workdir }}", received_files=to_receive_files)
 
