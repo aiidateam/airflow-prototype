@@ -8,7 +8,12 @@ from airflow.operators.python import PythonOperator
 from airflow.sdk import DAG, task, Param, get_current_context
 from pathlib import Path
 from async_calcjob_trigger import AsyncCalcJobTrigger
+from typing import Any
 
+from aiida import load_profile
+from aiida.common.links import LinkType
+
+load_profile()
 
 import os
 AIRFLOW_HOME_ = os.getenv("AIRFLOW_HOME", os.path.expanduser("~/airflow"))
@@ -21,6 +26,7 @@ LOCAL_WORKDIR.mkdir(exist_ok=True, parents=True)
 
 REMOTE_WORKDIR = AIRFLOW_HOME / "storage" / "remote_workdir"
 REMOTE_WORKDIR.mkdir(exist_ok=True, parents=True)
+
 
 ######################
 ### CORE OPERATORS ###
@@ -40,7 +46,119 @@ class CalcJobTaskOperator(BaseOperator):
         self.to_upload_files = to_upload_files or {}
         self.to_receive_files = to_receive_files or {}
 
+    def _convert_to_aiida_data(self, key: str, value: Any):
+        """Convert Python value to appropriate AiiDA data type."""
+        try:
+            from aiida import orm
+            
+            if isinstance(value, str):
+                return orm.Str(value)
+            elif isinstance(value, int):
+                return orm.Int(value)
+            elif isinstance(value, float):
+                return orm.Float(value)
+            elif isinstance(value, bool):
+                return orm.Bool(value)
+            elif isinstance(value, dict):
+                return orm.Dict(value)
+            elif isinstance(value, (list, tuple)):
+                # Store as Dict with indices
+                return orm.Dict({str(i): v for i, v in enumerate(value)})
+            else:
+                # Fall back to string representation
+                return orm.Str(str(value))
+        except Exception as e:
+            print(f"Could not convert {key}={value} to AiiDA data: {e}")
+            return None
+
+    def _create_aiida_calcjob_node(self, context: dict) -> int | None:
+        """Create AiiDA CalcJobNode from all available task parameters."""
+            
+        from aiida import orm
+        
+        # Create CalcJobNode
+        node = orm.CalcJobNode()
+        node.label = f"airflow_{context['dag'].dag_id}_{context['run_id'][:8]}"
+        node.description = f"CalcJob from Airflow DAG {context['dag'].dag_id}"
+        
+        # Store Airflow metadata
+        node.base.extras.set('airflow_dag_id', context['dag'].dag_id)
+        node.base.extras.set('airflow_run_id', context['run_id'])
+        node.base.extras.set('airflow_task_id', context['task'].task_id)
+        
+        # Get all XCom parameters from the prepare task
+        task_instance = context['task_instance']
+        prepare_outputs = task_instance.xcom_pull(task_ids='prepare')
+        
+        # Also get DAG-level parameters if available
+        dag_params = {}
+        if hasattr(context.get('params'), 'items'):
+            dag_params = dict(context['params'].items())
+        
+        # Combine all parameters
+        all_params = {}
+        all_params.update(dag_params)
+        if isinstance(prepare_outputs, dict):
+            all_params.update(prepare_outputs)
+        
+        # Add operator-specific parameters
+        all_params.update({
+            'machine': self.machine,
+            'local_workdir': self.local_workdir,
+            'remote_workdir': self.remote_workdir,
+        })
+        
+        # Convert parameters to AiiDA data types and link as inputs
+        for key, value in all_params.items():
+            if key in ['to_upload_files', 'to_receive_files', 'submission_script']:
+                continue  # Skip these internal parameters
+                
+            aiida_data = self._convert_to_aiida_data(key, value)
+            if aiida_data:
+                aiida_data.store()
+                node.base.links.add_incoming(aiida_data, link_type=LinkType.INPUT_CALC, link_label=key)
+        
+        # Store the node
+        node.store()
+        print(f"✓ Created AiiDA CalcJobNode {node.pk}")
+        
+        # Store node PK in XCom for later use
+        task_instance.xcom_push(key='aiida_node_pk', value=node.pk)
+        
+        return node.pk
+
+    def _store_aiida_outputs(self, context: dict, event: dict):
+        """Store CalcJob outputs in AiiDA after completion."""
+            
+        from aiida import orm
+        
+        # Get the node PK we stored earlier
+        task_instance = context['task_instance']
+        node_pk = task_instance.xcom_pull(key='aiida_node_pk')
+        
+        if not node_pk:
+            print("✗ No AiiDA node PK found to store outputs")
+            return
+            
+        # Load the node
+        node = orm.load_node(node_pk)
+        
+        # Store job ID as output
+        if 'job_id' in event:
+            job_id_data = orm.Int(event['job_id'])
+            job_id_data.label = "remote_job_id"
+            job_id_data.store()
+            job_id_data.base.links.add_incoming(node, link_type='create', link_label='job_id')
+            print(f"✓ Stored job_id in AiiDA node {job_id_data.pk}")
+        
+        # TODO: After file retrieval, we could also store the output files
+        # This would require extending the trigger to provide file contents
+            
+
     def execute(self, context: Context):
+        # Create AiiDA node before deferring
+        self._create_aiida_calcjob_node(context)
+
         # Pull XCom values from the prepare task
         task_instance = context['task_instance']
 
