@@ -6,9 +6,12 @@ from airflow.triggers.temporal import TimeDeltaTrigger
 from airflow.utils.context import Context
 from airflow.operators.python import PythonOperator
 from airflow.sdk import DAG, task, Param, get_current_context
+from airflow.utils.task_group import TaskGroup
 from pathlib import Path
 from typing import Tuple
 
+import sys
+sys.path.append("/Users/alexgo/code/airflow/dags")
 from transport.ssh import AsyncSshTransport
 
 import os
@@ -23,8 +26,9 @@ LOCAL_WORKDIR.mkdir(exist_ok=True)
 REMOTE_WORKDIR = AIRFLOW_HOME / "remote_workdir"
 REMOTE_WORKDIR.mkdir(exist_ok=True)
 
-
-### OPERATORS ###
+######################
+### CORE OPERATORS ###
+######################
 
 class UploadOperator(BaseOperator):
     template_fields = ["machine", "local_workdir", "remote_workdir", "to_upload_files"]
@@ -38,10 +42,15 @@ class UploadOperator(BaseOperator):
         self.to_upload_files = to_upload_files
 
     def execute(self, context: Context):
+        # Pull to_upload_files from XCom if it's empty
+        to_upload_files = self.to_upload_files
+        if not to_upload_files:
+            to_upload_files = context['task_instance'].xcom_pull(task_ids='prepare', key='to_upload_files')
+
         remote_workdir = Path(self.remote_workdir)
         transport = AsyncSshTransport(machine=self.machine)
         with transport.open() as connection:
-            for localpath, remotepath in self.to_upload_files.items():
+            for localpath, remotepath in to_upload_files.items():
                 connection.putfile(Path(localpath).absolute(), remote_workdir / Path(remotepath))
 
 
@@ -56,11 +65,15 @@ class SubmitOperator(BaseOperator):
         self.submission_script = submission_script
 
     def execute(self, context: Context):
+        # Pull submission_script from XCom if it's empty
+        submission_script = self.submission_script
+        if not submission_script:
+            submission_script = context['task_instance'].xcom_pull(task_ids='prepare', key='submission_script')
+
         local_workdir = Path(self.local_workdir)
         remote_workdir = Path(self.remote_workdir)
         transport = AsyncSshTransport(machine=self.machine)
         submission_script_path = local_workdir / Path("submit.sh")
-        submission_script = self.submission_script.resolve(context) # NOTE: I dunno what happens why to not like to_upload_files
         submission_script_path.write_text(submission_script)
         with transport.open() as connection:
             connection.putfile(submission_script_path, remote_workdir / "submit.sh" )
@@ -118,15 +131,78 @@ class ReceiveOperator(BaseOperator):
         self.to_receive_files = to_receive_files
 
     def execute(self, context: Context):
+        # Pull to_receive_files from XCom if it's empty
+        to_receive_files = self.to_receive_files
+        if not to_receive_files:
+            to_receive_files = context['task_instance'].xcom_pull(task_ids='prepare', key='to_receive_files')
+
         transport = AsyncSshTransport(machine=self.machine)
         local_workdir = Path(self.local_workdir)
         remote_workdir = Path(self.remote_workdir)
         with transport.open() as connection:
-            for remotepath, localpath in self.to_receive_files.items():
+            for remotepath, localpath in to_receive_files.items():
                 connection.getfile(remote_workdir / Path(remotepath), local_workdir / Path(localpath))
 
 
-### DAGS ###
+
+##########################
+### REUSABLE TASK GROUP ###
+##########################
+
+def create_calcjob_taskgroup(
+    group_id: str,
+    machine: str,
+    local_workdir: str,
+    remote_workdir: str,
+) -> TaskGroup:
+    """
+    Creates a reusable task group for the calcjob workflow:
+    upload → submit → update → receive
+
+    Each operator pulls its required values from XCom internally.
+    """
+    with TaskGroup(group_id=group_id) as calcjob_group:
+
+        # Create operators that pull their own config from XCom
+        upload_op = UploadOperator(
+            task_id="upload",
+            machine=machine,
+            local_workdir=local_workdir,
+            remote_workdir=remote_workdir,
+            to_upload_files={}  # Will be pulled from XCom
+        )
+
+        submit_op = SubmitOperator(
+            task_id="submit",
+            machine=machine,
+            local_workdir=local_workdir,
+            remote_workdir=remote_workdir,
+            submission_script=""  # Will be pulled from XCom
+        )
+
+        update_op = UpdateOperator(
+            task_id="update",
+            machine=machine,
+            job_id=submit_op.output
+        )
+
+        receive_op = ReceiveOperator(
+            task_id="receive",
+            machine=machine,
+            local_workdir=local_workdir,
+            remote_workdir=remote_workdir,
+            to_receive_files={}  # Will be pulled from XCom
+        )
+
+        # Set dependencies within the task group
+        upload_op >> submit_op >> update_op >> receive_op
+
+    return calcjob_group
+
+
+#################
+### CORE DAG ###
+#################
 
 def AiidDAG(**kwargs):
     kwargs['params'].update({
@@ -138,7 +214,9 @@ def AiidDAG(**kwargs):
     return DAG(**kwargs)
 
 
-### DEV USER ###
+####################
+### WORKFLOW DEV ###
+####################
 
 def AddDAG(**kwargs):
     if 'params' not in kwargs:
@@ -167,38 +245,35 @@ echo "$(({x}+{y}))" > file.out
                 "to_receive_files": to_receive_files}
 
     @task
-    def parse(local_workdir: str, received_files: dict[str, str]):
+    def parse(local_workdir: str):
+        """Parse results - pulls received_files from XCom instead of parameters"""
+        from airflow.sdk import get_current_context
+        context = get_current_context()
+        task_instance = context['task_instance']
+
+        received_files = task_instance.xcom_pull(task_ids='prepare', key='to_receive_files')
         for received_file in received_files.values():
             print(f"Final result: {(Path(local_workdir) / Path(received_file)).read_text()}")
 
+    ##########################################################################
+    ### THE CODE BELOW SHOULD BE AUTOMATICALLY CONNECTED TO THE CODE ABOVE ###
 
     # NOTE: no argument means all parms are passed
     prepare_op = prepare(x="{{ params.x }}", y="{{ params.y }}", sleep="{{ params.sleep }}")
-    to_upload_files, submission_script, to_receive_files = prepare_op["to_upload_files"], prepare_op["submission_script"], prepare_op["to_receive_files"]
 
-    upload_op = UploadOperator(task_id="upload",
-                   machine="{{ params.machine }}",
-                   local_workdir="{{ params.local_workdir }}",
-                   remote_workdir="{{ params.remote_workdir }}",
-                   to_upload_files=to_upload_files)
-    submit_op = SubmitOperator(task_id="submit",
-                            machine="{{ params.machine }}",
-                            local_workdir="{{ params.local_workdir }}",
-                            remote_workdir="{{ params.remote_workdir }}",
-                            submission_script=submission_script)
-    update_op = UpdateOperator(task_id="update",
-                   machine="{{ params.machine }}",
-                   job_id=submit_op.output
-                   )
-    receive_op = ReceiveOperator(task_id="receive",
-                   machine="{{ params.machine }}",
-                   local_workdir="{{ params.local_workdir }}",
-                   remote_workdir="{{ params.remote_workdir }}",
-                   to_receive_files=to_receive_files)
+    # Use the reusable task group (it will pull XCom values internally)
+    calcjob_group = create_calcjob_taskgroup(
+        group_id="calcjob",
+        machine="{{ params.machine }}",
+        local_workdir="{{ params.local_workdir }}",
+        remote_workdir="{{ params.remote_workdir }}"
+    )
 
-    parse_op = parse(local_workdir="{{ params.local_workdir }}", received_files=to_receive_files)
+    parse_op = parse(local_workdir="{{ params.local_workdir }}")
 
-    prepare_op >> upload_op >> submit_op >> update_op >> receive_op >> parse_op
+    prepare_op >> calcjob_group >> parse_op
+
+    ##########################################################################
 
 
 ### END USER ###
@@ -217,7 +292,3 @@ if __name__ == "__main__":
                   "remote_workdir": REMOTE_WORKDIR,
                   }
     )
-
-### Problems ###
-# - How to observe submitted jobs?
-
