@@ -8,10 +8,11 @@ from airflow.operators.python import PythonOperator
 from airflow.sdk import DAG, task, Param, get_current_context
 from airflow.utils.task_group import TaskGroup
 from pathlib import Path
-from typing import Tuple
 
 import sys
-sys.path.append("/Users/alexgo/code/airflow/dags")
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from transport.ssh import AsyncSshTransport
 
 import os
