@@ -5,6 +5,8 @@ remote_workdir
 logs
 *.db
 simple_auth_manager_passwords.json.generated
+airflow.db-shm
+airflow.db-wal
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

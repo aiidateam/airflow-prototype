@@ -11,7 +11,7 @@ from async_calcjob_trigger import AsyncCalcJobTrigger
 
 
 import os
-AIRFLOW_HOME_ = os.getenv("AIRFLOW_HOME", None)
+AIRFLOW_HOME_ = os.getenv("AIRFLOW_HOME", os.path.expanduser("~/airflow"))
 if AIRFLOW_HOME_ is None:
     raise ImportError("Could not find AIRFLOW_HOME.")
 AIRFLOW_HOME = Path(AIRFLOW_HOME_)
@@ -76,8 +76,8 @@ def AiidDAG(**kwargs):
     kwargs['params'].update({
         # TODO move to nested transport params
         "machine": Param("localhost", type="string", section="Submission config"),
-        "remote_workdir": Param(REMOTE_WORKDIR, type="string", section="Submission config"),
-        "local_workdir": Param(LOCAL_WORKDIR, type="string", section="Submission config"),
+        "remote_workdir": Param(str(REMOTE_WORKDIR), type="string", section="Submission config"),
+        "local_workdir": Param(str(LOCAL_WORKDIR), type="string", section="Submission config"),
         })
     return DAG(**kwargs)
 

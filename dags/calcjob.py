@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from transport.ssh import AsyncSshTransport
 
 import os
-AIRFLOW_HOME_ = os.getenv("AIRFLOW_HOME", None)
+AIRFLOW_HOME_ = os.getenv("AIRFLOW_HOME", os.path.expanduser("~/airflow"))
 if AIRFLOW_HOME_ is None:
     raise ImportError("Could not find AIRFLOW_HOME.")
 AIRFLOW_HOME = Path(AIRFLOW_HOME_)
