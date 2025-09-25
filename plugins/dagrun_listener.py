@@ -56,6 +56,38 @@ def _should_integrate_dag_with_aiida(dag_run: DagRun) -> bool:
     dag_tags = getattr(dag_run.dag, 'tags', [])
     return 'aiida' in dag_tags
 
+def _create_calcjob_outputs(node, task_instance):
+    """Create output files for the CalcJob node."""
+    # Get the result file from the local workdir
+    to_receive_files = task_instance.xcom_pull(task_ids='prepare', key='to_receive_files') or {}
+    local_workdir = task_instance.dag_run.conf.get('local_workdir') if task_instance.dag_run.conf else None
+    
+    if to_receive_files and local_workdir:
+        from pathlib import Path
+        
+        for remote_filename, local_filename in to_receive_files.items():
+            local_file_path = Path(local_workdir) / local_filename
+            
+            if local_file_path.exists():
+                # Create SinglefileData for the output
+                output_file = orm.SinglefileData(file=str(local_file_path))
+                output_file.label = f"output_{remote_filename}"
+                output_file.store()
+                
+                # Link as output
+                output_file.base.links.add_incoming(node, link_type=LinkType.CREATE, link_label=f"output_{remote_filename.replace('.', '_')}")
+                
+                # Also try to parse the result as an integer if it's the result file
+                if 'result' in local_filename.lower():
+                    try:
+                        result_value = int(local_file_path.read_text().strip())
+                        result_int = orm.Int(result_value)
+                        result_int.label = "sum"
+                        result_int.store()
+                        result_int.base.links.add_incoming(node, link_type=LinkType.CREATE, link_label='sum')
+                    except:
+                        pass  # Couldn't parse as integer
+
 def _create_calcjob_nodes_for_dag(dag_run: DagRun):
     """Create CalcJobNodes for calcjob tasks after DAG completion."""
     if not AIIDA_AVAILABLE:
@@ -72,6 +104,8 @@ def _create_calcjob_nodes_for_dag(dag_run: DagRun):
             node.base.extras.set('airflow_dag_id', ti.dag_id)
             node.base.extras.set('airflow_run_id', ti.run_id)
             node.base.extras.set('airflow_task_id', ti.task_id)
+
+            node.set_process_type('airflow.calcjob.CalcJobTaskOperator')
             
             # Store DAG run config (machine, workdir, etc)
             if hasattr(ti.dag_run, 'conf') and ti.dag_run.conf:
@@ -117,9 +151,12 @@ def _create_calcjob_nodes_for_dag(dag_run: DagRun):
                         pass
             
             # Ensure proper CalcJob setup
+            # import ipdb; ipdb.set_trace()
             node.set_process_state('finished')
             node.set_exit_status(0)
             node.store()
+
+            _create_calcjob_outputs(node, ti)
             
             logger.info(f"Created CalcJobNode {node.pk} for task {ti.task_id}")
 
