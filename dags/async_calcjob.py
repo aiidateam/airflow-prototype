@@ -125,7 +125,10 @@ echo "$(({x}+{y}))" > file.out
 
     # NOTE: no argument means all parms are passed
     prepare_op = prepare(x="{{ params.x }}", y="{{ params.y }}", sleep="{{ params.sleep }}")
-    to_upload_files, submission_script, to_receive_files = prepare_op["to_upload_files"], prepare_op["submission_script"], prepare_op["to_receive_files"]
+
+    to_upload_files = prepare_op["to_upload_files"]
+    submission_script = prepare_op["submission_script"]
+    to_receive_files = prepare_op["to_receive_files"]
 
     calcjob_op = CalcJobTaskOperator(task_id="calcjob_task",
                    machine="{{ params.machine }}",
