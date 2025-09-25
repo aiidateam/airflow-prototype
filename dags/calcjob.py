@@ -12,8 +12,7 @@ from pathlib import Path
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from transport.ssh import AsyncSshTransport
+from aiida.transports import AsyncSshTransport
 
 import os
 AIRFLOW_HOME_ = os.getenv("AIRFLOW_HOME", os.path.expanduser("~/airflow"))
