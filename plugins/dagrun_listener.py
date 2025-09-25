@@ -39,6 +39,91 @@ def _init_database():
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
 
+# AIIDA INTEGRATION - OPTIONAL
+AIIDA_AVAILABLE = False
+try:
+    from aiida import load_profile, orm
+    from aiida.common.links import LinkType
+    load_profile()
+    AIIDA_AVAILABLE = True
+    logger.info("AiiDA integration enabled")
+except Exception as e:
+    logger.info(f"AiiDA integration disabled: {e}")
+
+def _should_integrate_dag_with_aiida(dag_run: DagRun) -> bool:
+    if not AIIDA_AVAILABLE:
+        return False
+    dag_tags = getattr(dag_run.dag, 'tags', [])
+    return 'aiida' in dag_tags
+
+def _create_calcjob_nodes_for_dag(dag_run: DagRun):
+    """Create CalcJobNodes for calcjob tasks after DAG completion."""
+    if not AIIDA_AVAILABLE:
+        return
+    
+    task_instances = dag_run.get_task_instances()
+    
+    for ti in task_instances:
+        if 'calcjob' in ti.task_id.lower() and ti.state == 'success':
+            node = orm.CalcJobNode()
+            node.label = f"airflow_calcjob_{ti.task_id}"
+            node.description = f"CalcJob from Airflow task {ti.task_id}"
+            
+            node.base.extras.set('airflow_dag_id', ti.dag_id)
+            node.base.extras.set('airflow_run_id', ti.run_id)
+            node.base.extras.set('airflow_task_id', ti.task_id)
+            
+            # Store DAG run config (machine, workdir, etc)
+            if hasattr(ti.dag_run, 'conf') and ti.dag_run.conf:
+                for key, value in ti.dag_run.conf.items():
+                    if isinstance(value, (str, int, float, bool)):
+                        if isinstance(value, str):
+                            aiida_data = orm.Str(value)
+                        elif isinstance(value, int):
+                            aiida_data = orm.Int(value)
+                        elif isinstance(value, float):
+                            aiida_data = orm.Float(value)
+                        elif isinstance(value, bool):
+                            aiida_data = orm.Bool(value)
+                        
+                        aiida_data.store()
+                        node.base.links.add_incoming(aiida_data, link_type=LinkType.INPUT_CALC, link_label=key)
+            
+            # ADD: Store DAG params (x, y, sleep, etc)
+            dag_params = getattr(dag_run.dag, 'params', {})
+            # import ipdb; ipdb.set_trace()
+            for key, param in dag_params.items():
+                # Get the actual resolved value, not the Param object
+                # TODO: Check Param implementation, also has `value` attribute and `dump` method
+                if hasattr(param, 'resolve'):
+                    value = param.resolve()
+                else:
+                    value = param
+                
+                if isinstance(value, (str, int, float, bool)):
+                    if isinstance(value, str):
+                        aiida_data = orm.Str(value)
+                    elif isinstance(value, int):
+                        aiida_data = orm.Int(value)
+                    elif isinstance(value, float):
+                        aiida_data = orm.Float(value)
+                    elif isinstance(value, bool):
+                        aiida_data = orm.Bool(value)
+                    
+                    aiida_data.store()
+                    try:
+                        node.base.links.add_incoming(aiida_data, link_type=LinkType.INPUT_CALC, link_label=key)
+                    except ValueError:
+                        pass
+            
+            # Ensure proper CalcJob setup
+            node.set_process_state('finished')
+            node.set_exit_status(0)
+            node.store()
+            
+            logger.info(f"Created CalcJobNode {node.pk} for task {ti.task_id}")
+
+
 def _store_dagrun_event(dagrun: DagRun, event_type: str):
     """Store dagrun event information to SQLite database."""
     try:
@@ -115,11 +200,30 @@ class DagRunListener:
         logger.info(f"[CLASS LISTENER] DAG run started: {dag_run.dag_id}/{dag_run.run_id}")
         _store_dagrun_event(dag_run, 'running')
 
-    #@hookimpl
-    #def on_dag_run_success(self, dag_run: DagRun, msg: str):
-    #    """Called when a DAG run completes successfully."""
-    #    logger.info(f"[CLASS LISTENER] DAG run succeeded: {dag_run.dag_id}/{dag_run.run_id}")
-    #    _store_dagrun_event(dag_run, 'success')
+    @hookimpl
+    def on_dag_run_success(self, dag_run: DagRun, msg: str):
+        """Called when a DAG run completes successfully."""
+        logger.info(f"[CLASS LISTENER] DAG run succeeded: {dag_run.dag_id}/{dag_run.run_id}")
+        _store_dagrun_event(dag_run, 'success')
+        
+        # ADD DEBUG LOGGING:
+        logger.info(f"[DEBUG] Checking AiiDA integration for DAG {dag_run.dag_id}")
+        logger.info(f"[DEBUG] DAG tags: {getattr(dag_run.dag, 'tags', [])}")
+        
+        if _should_integrate_dag_with_aiida(dag_run):
+            logger.info(f"[DEBUG] Creating CalcJob nodes for DAG {dag_run.dag_id}")
+            _create_calcjob_nodes_for_dag(dag_run)
+        else:
+            logger.info(f"[DEBUG] Skipping AiiDA integration for DAG {dag_run.dag_id}")
+
+    # @hookimpl
+    # def on_dag_run_success(self, dag_run: DagRun, msg: str):
+    #     """Called when a DAG run completes successfully."""
+    #     logger.info(f"[CLASS LISTENER] DAG run succeeded: {dag_run.dag_id}/{dag_run.run_id}")
+    #     _store_dagrun_event(dag_run, 'success')
+    #
+    #     if _should_integrate_dag_with_aiida(dag_run):
+    #         _create_calcjob_nodes_for_dag(dag_run)
 
     #@hookimpl
     #def on_dag_run_failed(self, dag_run: DagRun, msg: str):
