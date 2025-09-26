@@ -94,6 +94,9 @@ def AddDAG(**kwargs):
         "y": Param("2", type="string"),
         "sleep": Param("20", type="string"),
         })
+    if 'tags' not in kwargs:
+        kwargs['tags'] = []
+    kwargs['tags'].append('aiida')
     return AiidDAG(**kwargs)
 
 with AddDAG(
@@ -122,7 +125,10 @@ echo "$(({x}+{y}))" > file.out
 
     # NOTE: no argument means all parms are passed
     prepare_op = prepare(x="{{ params.x }}", y="{{ params.y }}", sleep="{{ params.sleep }}")
-    to_upload_files, submission_script, to_receive_files = prepare_op["to_upload_files"], prepare_op["submission_script"], prepare_op["to_receive_files"]
+
+    to_upload_files = prepare_op["to_upload_files"]
+    submission_script = prepare_op["submission_script"]
+    to_receive_files = prepare_op["to_receive_files"]
 
     calcjob_op = CalcJobTaskOperator(task_id="calcjob_task",
                    machine="{{ params.machine }}",
@@ -153,7 +159,7 @@ echo "$(({x}+{y}))" > file.out
 if __name__ == "__main__":
     dag.test(
         run_conf={"machine": "localhost",
-                  "local_workdir": LOCAL_WORKDIR,
-                  "remote_workdir": REMOTE_WORKDIR,
+                  "local_workdir": str(LOCAL_WORKDIR),
+                  "remote_workdir": str(REMOTE_WORKDIR),
                   }
     )
