@@ -4,7 +4,7 @@ from airflow.triggers.temporal import TimeDeltaTrigger
 from airflow.utils.context import Context
 from pathlib import Path
 
-from airflow_provider_aiida.aiida_core.transport.ssh import AsyncSshTransport
+from aiida.transports.plugins.ssh_async import AsyncSshTransport
 
 ######################
 ### CORE OPERATORS ###

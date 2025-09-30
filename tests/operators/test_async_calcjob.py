@@ -8,6 +8,7 @@ Run tests:
 import pytest
 from unittest import mock
 from airflow.triggers.base import TriggerEvent
+from airflow.exceptions import TaskDeferred
 
 # Skip importing operators if transport module doesn't exist
 pytest_plugins = []
@@ -74,11 +75,11 @@ class TestAsyncUploadOperator:
             to_upload_files={"local_file.txt": "remote_file.txt"},
         )
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(TaskDeferred) as exc_info:
             op.execute(mock_context)
 
-        # Verify that defer was called
-        assert "defer" in str(type(exc_info.value).__name__).lower() or hasattr(exc_info.value, 'trigger')
+        # Verify the trigger is correct type
+        assert isinstance(exc_info.value.trigger, UploadTrigger)
 
     def test_execute_complete_success(self, mock_context):
         """Test successful completion."""
