@@ -19,14 +19,14 @@ from airflow.sdk import task
 # Import the existing operators and extend them for TaskGroup usage
 import sys
 
-sys.path.append("/Users/alexgo/code/airflow/dags")
+sys.path.append(str(Path(__file__).parent))
 from calcjob import (
     UploadOperator as BaseUploadOperator,
     SubmitOperator as BaseSubmitOperator,
     UpdateOperator,
     ReceiveOperator as BaseReceiveOperator,
 )
-from transport.ssh import AsyncSshTransport
+from aiida.transports import AsyncSshTransport
 
 
 class TaskGroupUploadOperator(BaseUploadOperator):

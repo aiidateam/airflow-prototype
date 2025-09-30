@@ -228,52 +228,54 @@ def AddDAG(**kwargs):
         })
     return AiidDAG(**kwargs)
 
-with AddDAG(
-    dag_id=Path(__file__).stem) as dag:
+# Only create the DAG if this file is loaded by Airflow (not when imported as a module)
+if __name__ != "__main__":
+    with AddDAG(
+        dag_id=Path(__file__).stem) as dag:
 
-    @task
-    def prepare(x: int, y: int, sleep: int) -> dict:
-        # TODO add to database
-        to_upload_files = {}
-        submission_script = f"""
+        @task
+        def prepare(x: int, y: int, sleep: int) -> dict:
+            # TODO add to database
+            to_upload_files = {}
+            submission_script = f"""
 sleep {sleep}
 echo "$(({x}+{y}))" > file.out
-        """
-        to_receive_files = {"file.out": "result.txt"}
-        return {"to_upload_files": to_upload_files,
-                "submission_script": submission_script,
-                "to_receive_files": to_receive_files}
+            """
+            to_receive_files = {"file.out": "result.txt"}
+            return {"to_upload_files": to_upload_files,
+                    "submission_script": submission_script,
+                    "to_receive_files": to_receive_files}
 
-    @task
-    def parse(local_workdir: str):
-        """Parse results - pulls received_files from XCom instead of parameters"""
-        from airflow.sdk import get_current_context
-        context = get_current_context()
-        task_instance = context['task_instance']
+        @task
+        def parse(local_workdir: str):
+            """Parse results - pulls received_files from XCom instead of parameters"""
+            from airflow.sdk import get_current_context
+            context = get_current_context()
+            task_instance = context['task_instance']
 
-        received_files = task_instance.xcom_pull(task_ids='prepare', key='to_receive_files')
-        for received_file in received_files.values():
-            print(f"Final result: {(Path(local_workdir) / Path(received_file)).read_text()}")
+            received_files = task_instance.xcom_pull(task_ids='prepare', key='to_receive_files')
+            for received_file in received_files.values():
+                print(f"Final result: {(Path(local_workdir) / Path(received_file)).read_text()}")
 
-    ##########################################################################
-    ### THE CODE BELOW SHOULD BE AUTOMATICALLY CONNECTED TO THE CODE ABOVE ###
+        ##########################################################################
+        ### THE CODE BELOW SHOULD BE AUTOMATICALLY CONNECTED TO THE CODE ABOVE ###
 
-    # NOTE: no argument means all parms are passed
-    prepare_op = prepare(x="{{ params.x }}", y="{{ params.y }}", sleep="{{ params.sleep }}")
+        # NOTE: no argument means all parms are passed
+        prepare_op = prepare(x="{{ params.x }}", y="{{ params.y }}", sleep="{{ params.sleep }}")
 
-    # Use the reusable task group (it will pull XCom values internally)
-    calcjob_group = create_calcjob_taskgroup(
-        group_id="calcjob",
-        machine="{{ params.machine }}",
-        local_workdir="{{ params.local_workdir }}",
-        remote_workdir="{{ params.remote_workdir }}"
-    )
+        # Use the reusable task group (it will pull XCom values internally)
+        calcjob_group = create_calcjob_taskgroup(
+            group_id="calcjob",
+            machine="{{ params.machine }}",
+            local_workdir="{{ params.local_workdir }}",
+            remote_workdir="{{ params.remote_workdir }}"
+        )
 
-    parse_op = parse(local_workdir="{{ params.local_workdir }}")
+        parse_op = parse(local_workdir="{{ params.local_workdir }}")
 
-    prepare_op >> calcjob_group >> parse_op
+        prepare_op >> calcjob_group >> parse_op
 
-    ##########################################################################
+        ##########################################################################
 
 
 ### END USER ###
@@ -285,7 +287,42 @@ echo "$(({x}+{y}))" > file.out
 
 #example_asset = Asset(uri="data.xyz", name="my_dataset")
 
-if __name__ == "__main__":
+else:
+    # Running as script for testing
+    with AddDAG(
+        dag_id=Path(__file__).stem) as dag:
+
+        @task
+        def prepare(x: int, y: int, sleep: int) -> dict:
+            to_upload_files = {}
+            submission_script = f"""
+sleep {sleep}
+echo "$(({x}+{y}))" > file.out
+            """
+            to_receive_files = {"file.out": "result.txt"}
+            return {"to_upload_files": to_upload_files,
+                    "submission_script": submission_script,
+                    "to_receive_files": to_receive_files}
+
+        @task
+        def parse(local_workdir: str):
+            from airflow.sdk import get_current_context
+            context = get_current_context()
+            task_instance = context['task_instance']
+            received_files = task_instance.xcom_pull(task_ids='prepare', key='to_receive_files')
+            for received_file in received_files.values():
+                print(f"Final result: {(Path(local_workdir) / Path(received_file)).read_text()}")
+
+        prepare_op = prepare(x="{{ params.x }}", y="{{ params.y }}", sleep="{{ params.sleep }}")
+        calcjob_group = create_calcjob_taskgroup(
+            group_id="calcjob",
+            machine="{{ params.machine }}",
+            local_workdir="{{ params.local_workdir }}",
+            remote_workdir="{{ params.remote_workdir }}"
+        )
+        parse_op = parse(local_workdir="{{ params.local_workdir }}")
+        prepare_op >> calcjob_group >> parse_op
+
     dag.test(
         run_conf={"machine": "localhost",
                   "local_workdir":  LOCAL_WORKDIR,
