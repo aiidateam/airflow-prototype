@@ -46,6 +46,21 @@ hatch shell
 hatch -e test shell
 ```
 
+You can check if it was loaded correctly with
+```
+airflow providers get airflow-provider-aiida
+```
+So far you need to copy the dags manually to airflow dags folder, I am still looking into it if it can be automatized `[dag_processor]`.
+```
+mkdir ~/airflow/dags/
+cp -r src/airflow_provider_aiida/example_dags/*py ~/airflow/dags/
+```
+To run the `arithmetic_add_multiply` dag you need for now create custom folders
+```
+mkdir ~/airflow/local_workdir/
+mkdir ~/airflow/remote_workdir/
+```
+
 The webserver can be accessed on `http://localhost:8080`
 The authentication information are written in `$AIRFLOW_HOME/simple_auth_manager_passwords.json.generated`
 You can access the plugin http://localhost:8080/plugins/aiida/dashboard

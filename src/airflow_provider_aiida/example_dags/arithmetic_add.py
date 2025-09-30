@@ -160,12 +160,12 @@ default_args = {
 }
 
 with DAG(
-    'calcjob_taskgroup_inheritance',
+    'arithmetic_add_multiply',
     default_args=default_args,
-    description='CalcJob TaskGroup using direct inheritance',
+    description='CalcJob TaskGroup for ArithmeticAddMultiply',
     schedule=None,
     catchup=False,
-    tags=['inheritance', 'calcjob', 'taskgroup'],
+    tags=['arithmetics', 'calcjob', 'taskgroup'],
     params={
         "machine": Param("localhost", type="string"),
         "local_workdir": Param("/Users/alexgo/code/airflow/local_workdir", type="string"),

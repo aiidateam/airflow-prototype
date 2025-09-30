@@ -4,20 +4,30 @@ def get_provider_info():
     return {
         "package-name": "airflow-provider-aiida",  # Required
         "name": "AiiDA Provider",  # Required
-        "description": "An Apache Airflow provider for AiiDA.",  # Required
-        #"operators": #TODO
-        #"triggers": #TODO
+        "description": "AiiDA framework for scientific workflows",  # Required
+        "operators": [
+            {
+                "integration-name": "AiiDA CalcJob",
+                "python-modules": ["airflow_provider_aiida.operators.calcjob"],
+            }
+        ],
+        "triggers": [
+            {
+                "integration-name": "AiiDA CalcJob Async",
+                "python-modules": ["airflow_provider_aiida.triggers.async_calcjob"],
+            }
+        ],
         "hooks": [
             {
-                "integration-name": "SSH",
-                "python-modules": ["aiida_provider.hooks.ssh"],
+                "integration-name": "SSH (AiiDA)",
+                "python-modules": ["airflow_provider_aiida.hooks.ssh"],
             }
         ],
         "connection-types": [
             {
                 "connection-type": "ssh",
-                "hook-class-name": "aiida_provider.hooks.ssh.SSHHook",
-                "hook-name": "SSH"
+                "hook-class-name": "airflow_provider_aiida.hooks.ssh.SSHHook",
+                "hook-name": "SSH (AiiDA)"
             }
         ],
         "versions": [__version__],  # Required

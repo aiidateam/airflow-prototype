@@ -25,7 +25,10 @@ class UploadOperator(BaseOperator):
         # Pull to_upload_files from XCom if it's empty
         to_upload_files = self.to_upload_files
         if not to_upload_files:
-            to_upload_files = context['task_instance'].xcom_pull(task_ids='prepare', key='to_upload_files')
+            # Handle both standalone and TaskGroup contexts
+            task_group = context['task'].task_group
+            prepare_task_id = f"{task_group.group_id}.prepare" if task_group else "prepare"
+            to_upload_files = context['task_instance'].xcom_pull(task_ids=prepare_task_id, key='to_upload_files')
 
         # If still empty, use empty dict
         if not to_upload_files:
@@ -54,7 +57,10 @@ class SubmitOperator(BaseOperator):
         # Pull submission_script from XCom if it's empty
         submission_script = self.submission_script
         if not submission_script:
-            submission_script = context['task_instance'].xcom_pull(task_ids='prepare', key='submission_script')
+            # Handle both standalone and TaskGroup contexts
+            task_group = context['task'].task_group
+            prepare_task_id = f"{task_group.group_id}.prepare" if task_group else "prepare"
+            submission_script = context['task_instance'].xcom_pull(task_ids=prepare_task_id, key='submission_script')
 
         local_workdir = Path(self.local_workdir)
         remote_workdir = Path(self.remote_workdir)
@@ -134,7 +140,10 @@ class ReceiveOperator(BaseOperator):
         # Pull to_receive_files from XCom if it's empty
         to_receive_files = self.to_receive_files
         if not to_receive_files:
-            to_receive_files = context['task_instance'].xcom_pull(task_ids='prepare', key='to_receive_files')
+            # Handle both standalone and TaskGroup contexts
+            task_group = context['task'].task_group
+            prepare_task_id = f"{task_group.group_id}.prepare" if task_group else "prepare"
+            to_receive_files = context['task_instance'].xcom_pull(task_ids=prepare_task_id, key='to_receive_files')
 
         # If still empty, use empty dict
         if not to_receive_files:
