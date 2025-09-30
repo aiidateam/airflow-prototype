@@ -4,7 +4,7 @@ from airflow.triggers.temporal import TimeDeltaTrigger
 from airflow.utils.context import Context
 from pathlib import Path
 
-from aiida.transports.plugins.ssh_async import AsyncSshTransport
+from airflow_provider_aiida.hooks.ssh import SSHHook
 
 ######################
 ### CORE OPERATORS ###
@@ -27,11 +27,17 @@ class UploadOperator(BaseOperator):
         if not to_upload_files:
             to_upload_files = context['task_instance'].xcom_pull(task_ids='prepare', key='to_upload_files')
 
+        # If still empty, use empty dict
+        if not to_upload_files:
+            to_upload_files = {}
+
+        # Use SSH Hook for connection management
+        hook = SSHHook(machine=self.machine)
         remote_workdir = Path(self.remote_workdir)
-        transport = AsyncSshTransport(machine=self.machine)
-        with transport.open() as connection:
-            for localpath, remotepath in to_upload_files.items():
-                connection.putfile(Path(localpath).absolute(), remote_workdir / Path(remotepath))
+
+        for localpath, remotepath in to_upload_files.items():
+            remote_path = remote_workdir / Path(remotepath)
+            hook.upload_file(localpath, str(remote_path))
 
 
 class SubmitOperator(BaseOperator):
@@ -52,16 +58,29 @@ class SubmitOperator(BaseOperator):
 
         local_workdir = Path(self.local_workdir)
         remote_workdir = Path(self.remote_workdir)
-        transport = AsyncSshTransport(machine=self.machine)
+
+        # Write submission script locally
         submission_script_path = local_workdir / Path("submit.sh")
         submission_script_path.write_text(submission_script)
-        with transport.open() as connection:
-            connection.putfile(submission_script_path, remote_workdir / "submit.sh" )
-            exit_code, stdout, stderr = connection.exec_command_wait(f"(bash {submission_script_path} > /dev/null 2>&1 & echo $!) &", workdir=remote_workdir)
+
+        # Use SSH Hook for connection management
+        hook = SSHHook(machine=self.machine)
+
+        # Upload submission script
+        remote_script_path = remote_workdir / "submit.sh"
+        hook.upload_file(str(submission_script_path), str(remote_script_path))
+
+        # Execute submission command
+        exit_code, stdout, stderr = hook.execute_command(
+            f"(bash submit.sh > /dev/null 2>&1 & echo $!) &",
+            workdir=str(remote_workdir)
+        )
+
         if exit_code != 0:
             raise ValueError(f"Submission did not work, {stderr}")
+
         job_id = int(stdout.strip())
-        self.log.info(f"Output of submission of process: {job_id}") #parse out correction
+        self.log.info(f"Output of submission of process: {job_id}")
         return job_id
 
 class UpdateOperator(BaseOperator):
@@ -90,11 +109,12 @@ class UpdateOperator(BaseOperator):
         return self.execute(context)
 
     def check_submission_alive(self, context) -> bool:
-        transport = AsyncSshTransport(machine=self.machine)
+        hook = SSHHook(machine=self.machine)
         job_id = self.job_id.resolve(context)
-        with transport.open() as connection:
-            # -0 does not kill the process, only verifies it
-            retval, stdout_bytes, stderr_bytes = connection.exec_command_wait(f"kill -0 {job_id}")
+
+        # -0 does not kill the process, only verifies it
+        retval, stdout_bytes, stderr_bytes = hook.execute_command(f"kill -0 {job_id}")
+
         self.log.info(f"retval={retval}")
         return bool(retval)
         # TODO check why it is not alive
@@ -116,10 +136,17 @@ class ReceiveOperator(BaseOperator):
         if not to_receive_files:
             to_receive_files = context['task_instance'].xcom_pull(task_ids='prepare', key='to_receive_files')
 
-        transport = AsyncSshTransport(machine=self.machine)
+        # If still empty, use empty dict
+        if not to_receive_files:
+            to_receive_files = {}
+
+        # Use SSH Hook for connection management
+        hook = SSHHook(machine=self.machine)
         local_workdir = Path(self.local_workdir)
         remote_workdir = Path(self.remote_workdir)
-        with transport.open() as connection:
-            for remotepath, localpath in to_receive_files.items():
-                connection.getfile(remote_workdir / Path(remotepath), local_workdir / Path(localpath))
+
+        for remotepath, localpath in to_receive_files.items():
+            remote_file = remote_workdir / Path(remotepath)
+            local_file = local_workdir / Path(localpath)
+            hook.download_file(str(remote_file), str(local_file))
 

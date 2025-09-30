@@ -12,20 +12,13 @@ from pathlib import Path
 # Skip importing triggers if transport module doesn't exist
 pytest_plugins = []
 
-try:
-    from airflow_provider_aiida.triggers.async_calcjob import (
-        UploadTrigger,
-        SubmitTrigger,
-        UpdateTrigger,
-        ReceiveTrigger,
-    )
-    TRIGGERS_AVAILABLE = True
-except ImportError as e:
-    TRIGGERS_AVAILABLE = False
-    pytestmark = pytest.mark.skip(reason=f"Triggers not available: {e}")
+from airflow_provider_aiida.triggers.async_calcjob import (
+    UploadTrigger,
+    SubmitTrigger,
+    UpdateTrigger,
+    ReceiveTrigger,
+)
 
-
-@pytest.mark.skipif(not TRIGGERS_AVAILABLE, reason="Triggers not available")
 class TestUploadTrigger:
     """Tests for UploadTrigger."""
 
@@ -102,7 +95,6 @@ class TestUploadTrigger:
             assert "Connection failed" in events[0].payload["message"]
 
 
-@pytest.mark.skipif(not TRIGGERS_AVAILABLE, reason="Triggers not available")
 class TestSubmitTrigger:
     """Tests for SubmitTrigger."""
 
@@ -187,7 +179,6 @@ class TestSubmitTrigger:
             assert "Submission did not work" in events[0].payload["message"]
 
 
-@pytest.mark.skipif(not TRIGGERS_AVAILABLE, reason="Triggers not available")
 class TestUpdateTrigger:
     """Tests for UpdateTrigger."""
 
@@ -294,7 +285,6 @@ class TestUpdateTrigger:
             assert "Connection failed" in events[0].payload["message"]
 
 
-@pytest.mark.skipif(not TRIGGERS_AVAILABLE, reason="Triggers not available")
 class TestReceiveTrigger:
     """Tests for ReceiveTrigger."""
 
