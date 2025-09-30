@@ -9,15 +9,27 @@ import pytest
 from unittest import mock
 from pathlib import Path
 
-# Skip importing triggers if transport module doesn't exist
-pytest_plugins = []
-
 from airflow_provider_aiida.triggers.async_calcjob import (
     UploadTrigger,
     SubmitTrigger,
     UpdateTrigger,
     ReceiveTrigger,
 )
+
+
+def create_mock_transport_queue(mock_connection):
+    """Helper to create mock transport queue with correct async/await behavior."""
+    async def mock_awaitable():
+        return mock_connection
+
+    mock_context = mock.MagicMock()
+    mock_context.__enter__ = mock.MagicMock(return_value=mock_awaitable())
+    mock_context.__exit__ = mock.MagicMock(return_value=None)
+
+    mock_queue = mock.MagicMock()
+    mock_queue.request_transport.return_value = mock_context
+    return mock_queue
+
 
 class TestUploadTrigger:
     """Tests for UploadTrigger."""
@@ -60,17 +72,17 @@ class TestUploadTrigger:
             to_upload_files={"local_file.txt": "remote_file.txt"},
         )
 
-        # Mock the transport
-        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.AsyncSshTransport") as mock_transport:
-            mock_connection = mock.MagicMock()
-            mock_transport.return_value.open.return_value.__enter__.return_value = mock_connection
+        mock_connection = mock.MagicMock()
+        mock_queue = create_mock_transport_queue(mock_connection)
 
-            events = []
-            async for event in trigger.run():
-                events.append(event)
+        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_transport_queue", return_value=mock_queue):
+            with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_authinfo_cached"):
+                events = []
+                async for event in trigger.run():
+                    events.append(event)
 
-            assert len(events) == 1
-            assert events[0].payload["status"] == "success"
+                assert len(events) == 1
+                assert events[0].payload["status"] == "success"
 
     @pytest.mark.asyncio
     async def test_run_error(self):
@@ -82,17 +94,18 @@ class TestUploadTrigger:
             to_upload_files={"local_file.txt": "remote_file.txt"},
         )
 
-        # Mock the transport to raise an exception
-        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.AsyncSshTransport") as mock_transport:
-            mock_transport.return_value.open.side_effect = Exception("Connection failed")
+        mock_queue = mock.MagicMock()
+        mock_queue.request_transport.side_effect = Exception("Connection failed")
 
-            events = []
-            async for event in trigger.run():
-                events.append(event)
+        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_transport_queue", return_value=mock_queue):
+            with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_authinfo_cached"):
+                events = []
+                async for event in trigger.run():
+                    events.append(event)
 
-            assert len(events) == 1
-            assert events[0].payload["status"] == "error"
-            assert "Connection failed" in events[0].payload["message"]
+                assert len(events) == 1
+                assert events[0].payload["status"] == "error"
+                assert "Connection failed" in events[0].payload["message"]
 
 
 class TestSubmitTrigger:
@@ -137,19 +150,19 @@ class TestSubmitTrigger:
             submission_script="#!/bin/bash\necho test",
         )
 
-        # Mock the transport
-        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.AsyncSshTransport") as mock_transport:
-            mock_connection = mock.MagicMock()
-            mock_connection.exec_command_wait.return_value = (0, "12345", "")
-            mock_transport.return_value.open.return_value.__enter__.return_value = mock_connection
+        mock_connection = mock.MagicMock()
+        mock_connection.exec_command_wait.return_value = (0, "12345", "")
+        mock_queue = create_mock_transport_queue(mock_connection)
 
-            events = []
-            async for event in trigger.run():
-                events.append(event)
+        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_transport_queue", return_value=mock_queue):
+            with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_authinfo_cached"):
+                events = []
+                async for event in trigger.run():
+                    events.append(event)
 
-            assert len(events) == 1
-            assert events[0].payload["status"] == "success"
-            assert events[0].payload["job_id"] == 12345
+                assert len(events) == 1
+                assert events[0].payload["status"] == "success"
+                assert events[0].payload["job_id"] == 12345
 
     @pytest.mark.asyncio
     async def test_run_submission_failed(self, tmp_path):
@@ -164,19 +177,19 @@ class TestSubmitTrigger:
             submission_script="#!/bin/bash\necho test",
         )
 
-        # Mock the transport to return error
-        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.AsyncSshTransport") as mock_transport:
-            mock_connection = mock.MagicMock()
-            mock_connection.exec_command_wait.return_value = (1, "", "Error submitting job")
-            mock_transport.return_value.open.return_value.__enter__.return_value = mock_connection
+        mock_connection = mock.MagicMock()
+        mock_connection.exec_command_wait.return_value = (1, "", "Error submitting job")
+        mock_queue = create_mock_transport_queue(mock_connection)
 
-            events = []
-            async for event in trigger.run():
-                events.append(event)
+        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_transport_queue", return_value=mock_queue):
+            with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_authinfo_cached"):
+                events = []
+                async for event in trigger.run():
+                    events.append(event)
 
-            assert len(events) == 1
-            assert events[0].payload["status"] == "error"
-            assert "Submission did not work" in events[0].payload["message"]
+                assert len(events) == 1
+                assert events[0].payload["status"] == "error"
+                assert "Submission did not work" in events[0].payload["message"]
 
 
 class TestUpdateTrigger:
@@ -223,19 +236,19 @@ class TestUpdateTrigger:
             sleep=1,
         )
 
-        # Mock the transport to indicate job is not running (retval != 0)
-        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.AsyncSshTransport") as mock_transport:
-            mock_connection = mock.MagicMock()
-            mock_connection.exec_command_wait.return_value = (1, "", "")
-            mock_transport.return_value.open.return_value.__enter__.return_value = mock_connection
+        mock_connection = mock.MagicMock()
+        mock_connection.exec_command_wait.return_value = (1, "", "")
+        mock_queue = create_mock_transport_queue(mock_connection)
 
-            events = []
-            async for event in trigger.run():
-                events.append(event)
+        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_transport_queue", return_value=mock_queue):
+            with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_authinfo_cached"):
+                events = []
+                async for event in trigger.run():
+                    events.append(event)
 
-            assert len(events) == 1
-            assert events[0].payload["status"] == "success"
-            assert events[0].payload["job_completed"] is True
+                assert len(events) == 1
+                assert events[0].payload["status"] == "success"
+                assert events[0].payload["job_completed"] is True
 
     @pytest.mark.asyncio
     async def test_run_job_running_then_completes(self):
@@ -243,26 +256,25 @@ class TestUpdateTrigger:
         trigger = UpdateTrigger(
             machine="localhost",
             job_id=12345,
-            sleep=0.1,  # Short sleep for testing
+            sleep=0.1,
         )
 
-        # Mock the transport to indicate job is running, then completed
-        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.AsyncSshTransport") as mock_transport:
-            mock_connection = mock.MagicMock()
-            # First call: job running (retval=0), second call: job completed (retval=1)
-            mock_connection.exec_command_wait.side_effect = [
-                (0, "", ""),  # Job running
-                (1, "", ""),  # Job completed
-            ]
-            mock_transport.return_value.open.return_value.__enter__.return_value = mock_connection
+        mock_connection = mock.MagicMock()
+        mock_connection.exec_command_wait.side_effect = [
+            (0, "", ""),  # Job running
+            (1, "", ""),  # Job completed
+        ]
+        mock_queue = create_mock_transport_queue(mock_connection)
 
-            events = []
-            async for event in trigger.run():
-                events.append(event)
+        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_transport_queue", return_value=mock_queue):
+            with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_authinfo_cached"):
+                events = []
+                async for event in trigger.run():
+                    events.append(event)
 
-            assert len(events) == 1
-            assert events[0].payload["status"] == "success"
-            assert events[0].payload["job_completed"] is True
+                assert len(events) == 1
+                assert events[0].payload["status"] == "success"
+                assert events[0].payload["job_completed"] is True
 
     @pytest.mark.asyncio
     async def test_run_error(self):
@@ -272,17 +284,18 @@ class TestUpdateTrigger:
             job_id=12345,
         )
 
-        # Mock the transport to raise an exception
-        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.AsyncSshTransport") as mock_transport:
-            mock_transport.return_value.open.side_effect = Exception("Connection failed")
+        mock_queue = mock.MagicMock()
+        mock_queue.request_transport.side_effect = Exception("Connection failed")
 
-            events = []
-            async for event in trigger.run():
-                events.append(event)
+        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_transport_queue", return_value=mock_queue):
+            with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_authinfo_cached"):
+                events = []
+                async for event in trigger.run():
+                    events.append(event)
 
-            assert len(events) == 1
-            assert events[0].payload["status"] == "error"
-            assert "Connection failed" in events[0].payload["message"]
+                assert len(events) == 1
+                assert events[0].payload["status"] == "error"
+                assert "Connection failed" in events[0].payload["message"]
 
 
 class TestReceiveTrigger:
@@ -326,17 +339,17 @@ class TestReceiveTrigger:
             to_receive_files={"remote_file.txt": "local_file.txt"},
         )
 
-        # Mock the transport
-        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.AsyncSshTransport") as mock_transport:
-            mock_connection = mock.MagicMock()
-            mock_transport.return_value.open.return_value.__enter__.return_value = mock_connection
+        mock_connection = mock.MagicMock()
+        mock_queue = create_mock_transport_queue(mock_connection)
 
-            events = []
-            async for event in trigger.run():
-                events.append(event)
+        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_transport_queue", return_value=mock_queue):
+            with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_authinfo_cached"):
+                events = []
+                async for event in trigger.run():
+                    events.append(event)
 
-            assert len(events) == 1
-            assert events[0].payload["status"] == "success"
+                assert len(events) == 1
+                assert events[0].payload["status"] == "success"
 
     @pytest.mark.asyncio
     async def test_run_error(self):
@@ -348,14 +361,15 @@ class TestReceiveTrigger:
             to_receive_files={"remote_file.txt": "local_file.txt"},
         )
 
-        # Mock the transport to raise an exception
-        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.AsyncSshTransport") as mock_transport:
-            mock_transport.return_value.open.side_effect = Exception("Connection failed")
+        mock_queue = mock.MagicMock()
+        mock_queue.request_transport.side_effect = Exception("Connection failed")
 
-            events = []
-            async for event in trigger.run():
-                events.append(event)
+        with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_transport_queue", return_value=mock_queue):
+            with mock.patch("airflow_provider_aiida.triggers.async_calcjob.get_authinfo_cached"):
+                events = []
+                async for event in trigger.run():
+                    events.append(event)
 
-            assert len(events) == 1
-            assert events[0].payload["status"] == "error"
-            assert "Connection failed" in events[0].payload["message"]
+                assert len(events) == 1
+                assert events[0].payload["status"] == "error"
+                assert "Connection failed" in events[0].payload["message"]
