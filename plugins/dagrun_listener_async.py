@@ -209,7 +209,9 @@ def _store_task_outputs(node: orm.CalcJobNode, task_instance: TaskInstance) -> N
         task_instance: The Airflow task instance
     """
     # TODO: continue here, how to get outputs, XComs?
-    import ipdb; ipdb.set_trace()
+    import ipdb
+
+    ipdb.set_trace()
     try:
         # Get all XCom keys for this task
         xcom_data = task_instance.xcom_pull(task_ids=task_instance.task_id, key=None)
@@ -285,13 +287,13 @@ def _should_integrate_dag_with_aiida(dag_run: DagRun) -> bool:
     return "aiida" in dag_tags
 
 
-def _create_workchain_node_from_dag(dag_run: DagRun) -> None:
+def _create_workchain_node_with_inputs(dag_run: DagRun) -> orm.WorkChainNode:
     """
-    Create a WorkChainNode from a successful Airflow DAG run.
+    Create a WorkChainNode from a running Airflow DAG and store its inputs.
 
-    Now completely generic - stores all params and conf without assumptions.
+    Returns:
+        The created and stored WorkChainNode
     """
-    # Create the WorkChainNode for the entire DAG
     workchain_node = orm.WorkChainNode()
     workchain_node.label = f"airflow_dag_{dag_run.dag_id}"
     workchain_node.description = f"Workflow from Airflow DAG {dag_run.dag_id}"
@@ -309,23 +311,95 @@ def _create_workchain_node_from_dag(dag_run: DagRun) -> None:
     if dag_conf:
         _store_params_as_aiida_inputs(workchain_node, dag_conf, prefix="conf")
 
-    workchain_node.set_process_state("finished")
-    workchain_node.set_exit_status(0)
+    workchain_node.set_process_state("running")
     workchain_node.store()
 
-    # Process each task in the DAG
-    task_instances = dag_run.get_task_instances()
-
-    for ti in task_instances:
-        # Generic detection: process any successful task
-        # You can add filters here if needed (e.g., by operator type)
-        if ti.state == "success":
-            # Check if this is a CalcJob-like task
-            # You might want to add metadata to your tasks to identify them
-            if should_create_calcjob_node(ti):
-                _create_calcjob_node_from_task(ti, workchain_node)
-
     logger.info(f"Created WorkChainNode {workchain_node.pk} for DAG {dag_run.dag_id}")
+    return workchain_node
+
+
+def _finalize_workchain_node_with_outputs(dag_run: DagRun) -> None:
+    """
+    Find the WorkChainNode for a completed DAG run and add outputs (CalcJobNodes).
+    If the WorkChainNode doesn't exist yet (because on_dag_run_running wasn't called),
+    create it first.
+    """
+    from aiida.orm import QueryBuilder
+
+    # Try to find the WorkChainNode created in on_dag_run_running
+    qb = QueryBuilder()
+    qb.append(
+        orm.WorkChainNode,
+        filters={"extras.airflow_run_id": dag_run.run_id},
+        tag="workchain",
+    )
+    results = qb.all()
+
+    if not results:
+        # WorkChainNode doesn't exist yet - create it now with inputs
+        logger.warning(
+            f"WorkChainNode not found for run_id {dag_run.run_id}. "
+            f"Creating it now (on_dag_run_running may not have been called)."
+        )
+        workchain_node = _create_workchain_node_with_inputs(dag_run)
+    else:
+        workchain_node = results[0][0]
+
+    # Update process state to finished
+    workchain_node.set_process_state("finished")
+    workchain_node.set_exit_status(0)
+
+    # Process each task in the DAG to add CalcJobNodes with outputs
+    task_instances = dag_run.get_task_instances()
+    for ti in task_instances:
+        if ti.state == "success" and should_create_calcjob_node(ti):
+            _create_calcjob_node_from_task(ti, workchain_node)
+
+    logger.info(f"Finalized WorkChainNode {workchain_node.pk} for DAG {dag_run.dag_id}")
+
+
+# def _create_workchain_node_from_dag(dag_run: DagRun) -> None:
+#     """
+#     Create a WorkChainNode from a successful Airflow DAG run.
+#
+#     Now completely generic - stores all params and conf without assumptions.
+#     """
+#     # Create the WorkChainNode for the entire DAG
+#     workchain_node = orm.WorkChainNode()
+#     workchain_node.label = f"airflow_dag_{dag_run.dag_id}"
+#     workchain_node.description = f"Workflow from Airflow DAG {dag_run.dag_id}"
+#
+#     workchain_node.base.extras.set("airflow_dag_id", dag_run.dag_id)
+#     workchain_node.base.extras.set("airflow_run_id", dag_run.run_id)
+#
+#     # Store ALL DAG parameters generically
+#     dag_params = getattr(dag_run.dag, "params", {})
+#     if dag_params:
+#         _store_params_as_aiida_inputs(workchain_node, dag_params, prefix="dag_param")
+#
+#     # Store ALL DAG configuration generically
+#     dag_conf = getattr(dag_run, "conf", {})
+#     if dag_conf:
+#         _store_params_as_aiida_inputs(workchain_node, dag_conf, prefix="conf")
+#
+#     workchain_node.set_process_state("finished")
+#     workchain_node.set_exit_status(0)
+#     workchain_node.store()
+#
+#     # Process each task in the DAG
+#     task_instances = dag_run.get_task_instances()
+#
+#     for ti in task_instances:
+#         # Generic detection: process any successful task
+#         # You can add filters here if needed (e.g., by operator type)
+#         if ti.state == "success":
+#             # Check if this is a CalcJob-like task
+#             # You might want to add metadata to your tasks to identify them
+#             if should_create_calcjob_node(ti):
+#                 _create_calcjob_node_from_task(ti, workchain_node)
+#
+#     logger.info(f"Created WorkChainNode {workchain_node.pk} for DAG {dag_run.dag_id}")
+#
 
 
 # Airflow Listener Plugin
@@ -337,21 +411,26 @@ class AiiDAIntegrationListener:
         """Called when a DAG run enters the running state."""
         logger.info(f"DAG run started: {dag_run.dag_id}/{dag_run.run_id}")
 
+        if _should_integrate_dag_with_aiida(dag_run):
+            logger.info(f"Creating WorkChainNode for DAG {dag_run.dag_id}")
+            try:
+                _create_workchain_node_with_inputs(dag_run)
+            except Exception as e:
+                logger.error(
+                    f"Failed to create AiiDA WorkChainNode: {e}", exc_info=True
+                )
+
     @hookimpl
     def on_dag_run_success(self, dag_run: DagRun, msg: str):
         """Called when a DAG run completes successfully."""
         logger.info(f"DAG run succeeded: {dag_run.dag_id}/{dag_run.run_id}")
 
         if _should_integrate_dag_with_aiida(dag_run):
-            logger.info(f"Creating WorkChainNode for DAG {dag_run.dag_id}")
+            logger.info(f"Finalizing WorkChainNode for DAG {dag_run.dag_id}")
             try:
-                _create_workchain_node_from_dag(dag_run)
+                _finalize_workchain_node_with_outputs(dag_run)
             except Exception as e:
-                logger.error(f"Failed to create AiiDA provenance: {e}", exc_info=True)
-        else:
-            logger.info(
-                f"Skipping AiiDA integration for DAG {dag_run.dag_id} (no 'aiida' tag)"
-            )
+                logger.error(f"Failed to finalize AiiDA provenance: {e}", exc_info=True)
 
     @hookimpl
     def on_dag_run_failed(self, dag_run: DagRun, msg: str):
