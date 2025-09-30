@@ -1,58 +1,237 @@
-from airflow_provider_aiida.dags import AiidaDAG
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, Any
+from airflow import DAG
+from airflow.decorators import task
+from airflow.models.param import Param
+from airflow_provider_aiida.dags.aiida import AiidaDAG
+from airflow_provider_aiida.taskgroups.calcjob import CalcJobTaskGroup
 
 
-####################
-### WORKFLOW DEV ###
-####################
+class AddJobTaskGroup(CalcJobTaskGroup):
+    """Addition job task group - directly IS a TaskGroup"""
 
-def AddDAG(**kwargs):
-    if 'params' not in kwargs:
-        kwargs['params'] = {}
-    kwargs['params'].update({
-        "x": Param("5", type="string"), # TODO to int
-        "y": Param("2", type="string"),
-        "sleep": Param("20", type="string"),
-        })
-    return AiidaDAG(**kwargs)
+    def __init__(self, group_id: str, machine: str, local_workdir: str, remote_workdir: str,
+                 x: int, y: int, sleep: int, **kwargs):
+        self.x = x
+        self.y = y
+        self.sleep = sleep
+        super().__init__(group_id, machine, local_workdir, remote_workdir, **kwargs)
 
-with AddDAG(
-    dag_id=Path(__file__).stem) as dag:
-
-    @task
-    def prepare(x: int, y: int, sleep: int) -> dict:
-        # TODO add to database
+    def prepare(self, **context) -> Dict[str, Any]:
+        """Prepare addition job inputs"""
         to_upload_files = {}
+
         submission_script = f"""
-sleep {sleep}
-echo "$(({x}+{y}))" > file.out
+sleep {self.sleep}
+echo "$(({self.x}+{self.y}))" > result.out
         """
-        to_receive_files = {"file.out": "result.txt"}
-        return {"to_upload_files": to_upload_files,
-                "submission_script": submission_script,
-                "to_receive_files": to_receive_files}
+
+        to_receive_files = {"result.out": "addition_result.txt"}
+
+        # Push to XCom for the calcjob operators to use
+        context['task_instance'].xcom_push(key='to_upload_files', value=to_upload_files)
+        context['task_instance'].xcom_push(key='submission_script', value=submission_script)
+        context['task_instance'].xcom_push(key='to_receive_files', value=to_receive_files)
+
+        return {
+            "to_upload_files": to_upload_files,
+            "submission_script": submission_script,
+            "to_receive_files": to_receive_files
+        }
+
+    def parse(self, local_workdir: str, **context) -> tuple[int, Dict[str, Any]]:
+        """Parse addition job results"""
+        to_receive_files = context['task_instance'].xcom_pull(
+            task_ids=f'{self.group_id}.prepare',
+            key='to_receive_files'
+        )
+
+        results = {}
+        exit_status = 0  # Start with success
+
+        try:
+            for file_key, received_file in to_receive_files.items():
+                file_path = Path(local_workdir) / Path(received_file)
+                if not file_path.exists():
+                    print(f"ERROR: Expected file {received_file} not found")
+                    exit_status = 1
+                    continue
+
+                result_content = file_path.read_text().strip()
+                print(f"Addition result ({self.x} + {self.y}): {result_content}")
+                results[file_key] = int(result_content)
+
+        except Exception as e:
+            print(f"ERROR parsing results: {e}")
+            exit_status = 2
+
+        # Store both exit status and results in XCom
+        final_result = (exit_status, results)
+        context['task_instance'].xcom_push(key='final_result', value=final_result)
+        return final_result
+
+
+class MultiplyJobTaskGroup(CalcJobTaskGroup):
+    """Multiplication job task group - directly IS a TaskGroup"""
+
+    def __init__(self, group_id: str, machine: str, local_workdir: str, remote_workdir: str,
+                 x: int, y: int, sleep: int, **kwargs):
+        self.x = x
+        self.y = y
+        self.sleep = sleep
+        super().__init__(group_id, machine, local_workdir, remote_workdir, **kwargs)
+
+    def prepare(self, **context) -> Dict[str, Any]:
+        """Prepare multiplication job inputs"""
+        to_upload_files = {}
+
+        submission_script = f"""
+sleep {self.sleep}
+echo "$(({self.x}*{self.y}))" > multiply_result.out
+echo "Operation: {self.x} * {self.y}" > operation.log
+        """
+
+        to_receive_files = {
+            "multiply_result.out": "multiply_result.txt",
+            "operation.log": "operation.log"
+        }
+
+        # Push to XCom
+        context['task_instance'].xcom_push(key='to_upload_files', value=to_upload_files)
+        context['task_instance'].xcom_push(key='submission_script', value=submission_script)
+        context['task_instance'].xcom_push(key='to_receive_files', value=to_receive_files)
+
+        return {
+            "to_upload_files": to_upload_files,
+            "submission_script": submission_script,
+            "to_receive_files": to_receive_files
+        }
+
+    def parse(self, local_workdir: str, **context) -> tuple[int, Dict[str, Any]]:
+        """Parse multiplication job results"""
+        to_receive_files = context['task_instance'].xcom_pull(
+            task_ids=f'{self.group_id}.prepare',
+            key='to_receive_files'
+        )
+
+        results = {}
+        exit_status = 0  # Start with success
+
+        try:
+            for file_key, received_file in to_receive_files.items():
+                file_path = Path(local_workdir) / Path(received_file)
+                if not file_path.exists():
+                    print(f"ERROR: Expected file {received_file} not found")
+                    exit_status = 1
+                    continue
+
+                content = file_path.read_text().strip()
+                print(f"File {file_key}: {content}")
+                if file_key == "multiply_result.out":
+                    results['result'] = int(content)
+                else:
+                    results['log'] = content
+
+            if 'result' not in results:
+                print("ERROR: No multiplication result found")
+                exit_status = 1
+
+            print(f"Multiplication result ({self.x} * {self.y}): {results.get('result', 'N/A')}")
+
+        except Exception as e:
+            print(f"ERROR parsing results: {e}")
+            exit_status = 2
+
+        # Store both exit status and results in XCom
+        final_result = (exit_status, results)
+        context['task_instance'].xcom_push(key='final_result', value=final_result)
+        return final_result
+
+
+# Create DAG
+default_args = {
+    'owner': 'alexgo',
+    'depends_on_past': False,
+    'start_date': datetime(2025, 1, 1),
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 0,
+}
+
+with DAG(
+    'calcjob_taskgroup_inheritance',
+    default_args=default_args,
+    description='CalcJob TaskGroup using direct inheritance',
+    schedule=None,
+    catchup=False,
+    tags=['inheritance', 'calcjob', 'taskgroup'],
+    params={
+        "machine": Param("localhost", type="string"),
+        "local_workdir": Param("/Users/alexgo/code/airflow/local_workdir", type="string"),
+        "remote_workdir": Param("/Users/alexgo/code/airflow/remote_workdir", type="string"),
+    }
+) as dag:
+
+    # Create task groups directly - no builder pattern needed!
+    # Use separate local and remote directories to avoid file conflicts
+    add_job = AddJobTaskGroup(
+        group_id="addition_job",
+        machine="{{ params.machine }}",
+        local_workdir="{{ params.local_workdir }}/addition_job",
+        remote_workdir="{{ params.remote_workdir }}/addition_job",
+        x=8,
+        y=4,
+        sleep=3,
+    )
+
+    multiply_job = MultiplyJobTaskGroup(
+        group_id="multiplication_job",
+        machine="{{ params.machine }}",
+        local_workdir="{{ params.local_workdir }}/multiplication_job",
+        remote_workdir="{{ params.remote_workdir }}/multiplication_job",
+        x=6,
+        y=9,
+        sleep=2,
+    )
 
     @task
-    def parse(local_workdir: str, received_files: dict[str, str]):
-        for received_file in received_files.values():
-            print(f"Final result: {(Path(local_workdir) / Path(received_file)).read_text()}")
+    def combine_results():
+        """Combine results from both job types"""
+        from airflow.sdk import get_current_context
+        context = get_current_context()
+        task_instance = context['task_instance']
 
-    ##########################################################################
-    ### THE CODE BELOW SHOULD BE AUTOMATICALLY CONNECTED TO THE CODE ABOVE ###
+        add_result = task_instance.xcom_pull(
+            task_ids='addition_job.parse',
+            key='final_result'
+        )
+        multiply_result = task_instance.xcom_pull(
+            task_ids='multiplication_job.parse',
+            key='final_result'
+        )
 
-    # NOTE: no argument means all parms are passed
-    prepare_op = prepare(x="{{ params.x }}", y="{{ params.y }}", sleep="{{ params.sleep }}")
-    to_upload_files, submission_script, to_receive_files = prepare_op["to_upload_files"], prepare_op["submission_script"], prepare_op["to_receive_files"]
+        # Unpack tuples (exit_status, results)
+        add_exit_status, add_data = add_result
+        multiply_exit_status, multiply_data = multiply_result
 
-    calcjob_op = CalcJobTaskOperator(task_id="calcjob_task",
-                   machine="{{ params.machine }}",
-                   local_workdir="{{ params.local_workdir }}",
-                   remote_workdir="{{ params.remote_workdir }}",
-                   to_upload_files=to_upload_files,
-                   to_receive_files=to_receive_files,
-                   submission_script=submission_script,
-                )
+        combined = {
+            'addition': {
+                'exit_status': add_exit_status,
+                'success': add_exit_status == 0,
+                'data': add_data
+            },
+            'multiplication': {
+                'exit_status': multiply_exit_status,
+                'success': multiply_exit_status == 0,
+                'data': multiply_data
+            },
+            'overall_success': add_exit_status == 0 and multiply_exit_status == 0
+        }
 
+        print(f"Combined results: {combined}")
+        return combined
 
-    parse_op = parse(local_workdir="{{ params.local_workdir }}", received_files=to_receive_files)
-
-    prepare_op >> calcjob_op >> parse_op
+    # Direct usage - add_job and multiply_job ARE TaskGroups!
+    combine_task = combine_results()
+    [add_job, multiply_job] >> combine_task
