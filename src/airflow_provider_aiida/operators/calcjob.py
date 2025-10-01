@@ -52,6 +52,8 @@ class UploadOperator(BaseOperator):
         async def upload_files():
             with transport_queue.request_transport(authinfo) as request:
                 connection = await request
+                # Create remote working directory if it doesn't exist
+                connection.makedirs(str(remote_workdir), ignore_existing=True)
                 for localpath, remotepath in to_upload_files.items():
                     remote_path = remote_workdir / Path(remotepath)
                     connection.putfile(Path(localpath).absolute(), remote_path)
@@ -88,6 +90,7 @@ class SubmitOperator(BaseOperator):
         # Write submission script locally
         submission_script_path = local_workdir / Path("submit.sh")
         submission_script_path.write_text(submission_script)
+        self.log.info(f"Submission script written to: {submission_script_path}")
 
         # Use TransportQueue for SSH operations
         import asyncio
@@ -97,8 +100,13 @@ class SubmitOperator(BaseOperator):
         async def submit_job():
             with transport_queue.request_transport(authinfo) as request:
                 connection = await request
+                # Create remote working directory if it doesn't exist
+                connection.makedirs(str(remote_workdir), ignore_existing=True)
+                self.log.info(f"Remote working directory created/verified: {remote_workdir}")
                 # Upload submission script
-                connection.putfile(submission_script_path, remote_workdir / "submit.sh")
+                remote_script = remote_workdir / "submit.sh"
+                connection.putfile(submission_script_path, remote_script)
+                self.log.info(f"Uploaded submission script to: {remote_script}")
                 # Execute submission command
                 exit_code, stdout, stderr = connection.exec_command_wait(
                     f"(bash submit.sh > /dev/null 2>&1 & echo $!) &",
@@ -198,6 +206,7 @@ class ReceiveOperator(BaseOperator):
         async def download_files():
             with transport_queue.request_transport(authinfo) as request:
                 connection = await request
+                # Remote directory should already exist at this point
                 for remotepath, localpath in to_receive_files.items():
                     remote_file = remote_workdir / Path(remotepath)
                     local_file = local_workdir / Path(localpath)
