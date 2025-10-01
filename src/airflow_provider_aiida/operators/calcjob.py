@@ -1,10 +1,15 @@
 from datetime import timedelta
 from airflow.models import BaseOperator
 from airflow.triggers.temporal import TimeDeltaTrigger
+#from airflow.providers.standard.triggers.temporal import TimeDeltaTrigger 
 from airflow.utils.context import Context
 from pathlib import Path
 
 from airflow_provider_aiida.hooks.ssh import SSHHook
+from airflow_provider_aiida.aiida_core.transport import (
+    get_transport_queue,
+    get_authinfo_cached,
+)
 
 ######################
 ### CORE OPERATORS ###
@@ -34,13 +39,25 @@ class UploadOperator(BaseOperator):
         if not to_upload_files:
             to_upload_files = {}
 
-        # Use SSH Hook for connection management
-        hook = SSHHook(machine=self.machine)
+        # Create local workdir if it doesn't exist
+        local_workdir = Path(self.local_workdir)
+        local_workdir.mkdir(parents=True, exist_ok=True)
+
+        # Use TransportQueue for SSH operations
+        import asyncio
+        transport_queue = get_transport_queue()
+        authinfo = get_authinfo_cached(self.machine or "localhost")
         remote_workdir = Path(self.remote_workdir)
 
-        for localpath, remotepath in to_upload_files.items():
-            remote_path = remote_workdir / Path(remotepath)
-            hook.upload_file(localpath, str(remote_path))
+        async def upload_files():
+            with transport_queue.request_transport(authinfo) as request:
+                connection = await request
+                for localpath, remotepath in to_upload_files.items():
+                    remote_path = remote_workdir / Path(remotepath)
+                    connection.putfile(Path(localpath).absolute(), remote_path)
+
+        loop =  asyncio.get_event_loop()
+        loop.run_until_complete(upload_files())
 
 
 class SubmitOperator(BaseOperator):
@@ -65,22 +82,32 @@ class SubmitOperator(BaseOperator):
         local_workdir = Path(self.local_workdir)
         remote_workdir = Path(self.remote_workdir)
 
+        # Create local workdir if it doesn't exist
+        local_workdir.mkdir(parents=True, exist_ok=True)
+
         # Write submission script locally
         submission_script_path = local_workdir / Path("submit.sh")
         submission_script_path.write_text(submission_script)
 
-        # Use SSH Hook for connection management
-        hook = SSHHook(machine=self.machine)
+        # Use TransportQueue for SSH operations
+        import asyncio
+        transport_queue = get_transport_queue()
+        authinfo = get_authinfo_cached(self.machine or "localhost")
 
-        # Upload submission script
-        remote_script_path = remote_workdir / "submit.sh"
-        hook.upload_file(str(submission_script_path), str(remote_script_path))
+        async def submit_job():
+            with transport_queue.request_transport(authinfo) as request:
+                connection = await request
+                # Upload submission script
+                connection.putfile(submission_script_path, remote_workdir / "submit.sh")
+                # Execute submission command
+                exit_code, stdout, stderr = connection.exec_command_wait(
+                    f"(bash submit.sh > /dev/null 2>&1 & echo $!) &",
+                    workdir=str(remote_workdir)
+                )
+                return exit_code, stdout, stderr
 
-        # Execute submission command
-        exit_code, stdout, stderr = hook.execute_command(
-            f"(bash submit.sh > /dev/null 2>&1 & echo $!) &",
-            workdir=str(remote_workdir)
-        )
+        loop =  asyncio.get_event_loop()
+        exit_code, stdout, stderr = loop.run_until_complete(submit_job())
 
         if exit_code != 0:
             raise ValueError(f"Submission did not work, {stderr}")
@@ -115,11 +142,20 @@ class UpdateOperator(BaseOperator):
         return self.execute(context)
 
     def check_submission_alive(self, context) -> bool:
-        hook = SSHHook(machine=self.machine)
+        import asyncio
+        transport_queue = get_transport_queue()
+        authinfo = get_authinfo_cached(self.machine or "localhost")
         job_id = self.job_id.resolve(context)
 
-        # -0 does not kill the process, only verifies it
-        retval, stdout_bytes, stderr_bytes = hook.execute_command(f"kill -0 {job_id}")
+        async def check_job():
+            with transport_queue.request_transport(authinfo) as request:
+                connection = await request
+                # -0 does not kill the process, only verifies it
+                retval, stdout_bytes, stderr_bytes = connection.exec_command_wait(f"kill -0 {job_id}")
+                return retval
+
+        loop =  asyncio.get_event_loop()
+        retval = loop.run_until_complete(check_job())
 
         self.log.info(f"retval={retval}")
         return bool(retval)
@@ -149,13 +185,23 @@ class ReceiveOperator(BaseOperator):
         if not to_receive_files:
             to_receive_files = {}
 
-        # Use SSH Hook for connection management
-        hook = SSHHook(machine=self.machine)
+        # Create local workdir if it doesn't exist
         local_workdir = Path(self.local_workdir)
+        local_workdir.mkdir(parents=True, exist_ok=True)
+
+        # Use TransportQueue for SSH operations
+        import asyncio
+        transport_queue = get_transport_queue()
+        authinfo = get_authinfo_cached(self.machine or "localhost")
         remote_workdir = Path(self.remote_workdir)
 
-        for remotepath, localpath in to_receive_files.items():
-            remote_file = remote_workdir / Path(remotepath)
-            local_file = local_workdir / Path(localpath)
-            hook.download_file(str(remote_file), str(local_file))
+        async def download_files():
+            with transport_queue.request_transport(authinfo) as request:
+                connection = await request
+                for remotepath, localpath in to_receive_files.items():
+                    remote_file = remote_workdir / Path(remotepath)
+                    local_file = local_workdir / Path(localpath)
+                    connection.getfile(remote_file, local_file)
 
+        loop =  asyncio.get_event_loop()
+        return loop.run_until_complete(download_files())

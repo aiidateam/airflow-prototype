@@ -151,7 +151,7 @@ echo "Operation: {self.x} * {self.y}" > operation.log
 
 # Create DAG
 default_args = {
-    'owner': 'alexgo',
+    'owner': 'airflow',
     'depends_on_past': False,
     'start_date': datetime(2025, 1, 1),
     'email_on_failure': False,
@@ -168,8 +168,8 @@ with DAG(
     tags=['arithmetics', 'calcjob', 'taskgroup'],
     params={
         "machine": Param("localhost", type="string"),
-        "local_workdir": Param("/Users/alexgo/code/airflow/local_workdir", type="string"),
-        "remote_workdir": Param("/Users/alexgo/code/airflow/remote_workdir", type="string"),
+        "local_workdir": Param("/tmp/airflow/local_workdir", type="string"),
+        "remote_workdir": Param("/tmp/airflow/remote_workdir", type="string"),
     }
 ) as dag:
 

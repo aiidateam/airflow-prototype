@@ -25,9 +25,15 @@ def get_provider_info():
         ],
         "connection-types": [
             {
-                "connection-type": "ssh",
+                "connection-type": "aiida_ssh",
                 "hook-class-name": "airflow_provider_aiida.hooks.ssh.SSHHook",
                 "hook-name": "SSH (AiiDA)"
+            }
+        ],
+        "plugins": [
+            {
+                "name": "dagrun_tracking_plugin",
+                "plugin-class": "airflow_provider_aiida.plugins.dagrun_listener:DagRunTrackingPlugin",
             }
         ],
         "versions": [__version__],  # Required

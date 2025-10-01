@@ -1,124 +1,13 @@
 import asyncio
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, AsyncIterator, Optional, Dict
+from typing import Any, AsyncIterator
 
 from airflow.triggers.base import BaseTrigger, TriggerEvent
-from airflow.hooks.base import BaseHook
-from aiida.engine.transports import TransportQueue
-
-
-class DummyComputer:
-    """Dummy Computer object that mimics AiiDA Computer for duck typing."""
-
-    def __init__(self, label: str, hostname: str, transport_type: str, scheduler_type: str):
-        self.label = label
-        self.hostname = hostname
-        self.transport_type = transport_type
-        self.scheduler_type = scheduler_type
-        self.pk = hash(label)  # Use label hash as unique identifier
-
-
-class DummyUser:
-    """Dummy User object that mimics AiiDA User for duck typing."""
-
-    def __init__(self, email: str):
-        self.email = email
-        self.pk = hash(email)
-
-
-class DummyAuthInfo:
-    """Dummy AuthInfo object that mimics AiiDA AuthInfo for duck typing with TransportQueue."""
-
-    def __init__(self, computer: DummyComputer, user: DummyUser):
-        self.computer = computer
-        self.user = user
-        self._auth_params = {}
-        # Use computer pk as unique identifier for transport caching
-        self.pk = computer.pk
-
-    def set_auth_params(self, auth_params: dict):
-        """Set authentication parameters."""
-        self._auth_params = auth_params
-
-    def get_auth_params(self) -> dict:
-        """Get authentication parameters."""
-        return self._auth_params
-
-    def get_transport(self):
-        """Return an AiiDA SSH transport configured from auth params."""
-        from aiida.plugins import TransportFactory
-
-        transport_class = TransportFactory(self.computer.transport_type)
-        # Create transport with machine parameter (hostname) and auth params
-        transport = transport_class(machine=self.computer.hostname, **self._auth_params)
-        return transport
-
-
-def get_authinfo_from_airflow_connection(conn_id: str):
-    """
-    Create AiiDA AuthInfo-like object from Airflow connection metadata.
-
-    This bypasses the AiiDA database and creates the AuthInfo on-the-fly
-    from Airflow's connection configuration using duck-typed dummy classes.
-
-    :param conn_id: Airflow connection ID (typically machine name)
-    :return: DummyAuthInfo object compatible with TransportQueue
-    """
-    # Get connection from Airflow metadata database
-    conn = BaseHook.get_connection(conn_id)
-
-    # Create dummy Computer object (not stored in AiiDA DB)
-    computer = DummyComputer(
-        label=conn_id,
-        hostname=conn.host or 'localhost',
-        transport_type='core.ssh',
-        scheduler_type='core.direct',
-    )
-
-    # Create dummy User object (not stored in AiiDA DB)
-    user = DummyUser(email=conn.login or 'airflow@localhost')
-
-    # Create dummy AuthInfo with connection metadata
-    authinfo = DummyAuthInfo(computer=computer, user=user)
-    authinfo.set_auth_params({
-        'username': conn.login or 'airflow',
-        'port': conn.port or 22,
-        # Add other SSH params from extras if needed
-        **conn.extra_dejson
-    })
-
-    return authinfo
-
-
-# ---------------------------
-# Module-level singletons
-# ---------------------------
-
-_TRANSPORT_QUEUE: Optional[TransportQueue] = None
-_AUTHINFO_CACHE: Dict[str, Any] = {}
-
-
-def get_transport_queue() -> TransportQueue:
-    """Return a per-process shared TransportQueue instance."""
-    global _TRANSPORT_QUEUE
-    if _TRANSPORT_QUEUE is None:
-        _TRANSPORT_QUEUE = TransportQueue()
-    return _TRANSPORT_QUEUE
-
-
-def get_authinfo_cached(conn_id: str):
-    """
-    Cache authinfo objects per connection ID to avoid repeated lookups.
-
-    Uses Airflow connection metadata instead of AiiDA database.
-    """
-    global _AUTHINFO_CACHE
-    auth = _AUTHINFO_CACHE.get(conn_id)
-    if auth is None:
-        auth = get_authinfo_from_airflow_connection(conn_id)
-        _AUTHINFO_CACHE[conn_id] = auth
-    return auth
+from airflow_provider_aiida.aiida_core.transport import (
+    get_transport_queue,
+    get_authinfo_cached,
+)
 
 
 class UploadTrigger(BaseTrigger):
