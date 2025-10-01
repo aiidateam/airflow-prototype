@@ -182,8 +182,8 @@ class DagRunListener:
         _store_dagrun_event(dag_run, 'failed')
 
 # Create listener instance
-dagrun_listener = DagRunListener()
+dag_run_listener = DagRunListener()
 
-class DagRunTrackingPlugin(AirflowPlugin):
-    name = "dagrun_tracking_plugin"
-    listeners = [dagrun_listener]
+class AiidaDagRunListener(AirflowPlugin):
+    name = "aiida_dag_run_listener"
+    listeners = [dag_run_listener]

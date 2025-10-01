@@ -537,8 +537,8 @@ app_with_metadata = {
     "name": "AiiDAPlugin",
 }
 
-class AirflowTestPlugin(AirflowPlugin):
-    name = "aiida_plugin"
+class AiidaUI(AirflowPlugin):
+    name = "aiida_ui"
     macros = [plugin_macro]
     fastapi_apps = [app_with_metadata]
 
