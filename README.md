@@ -50,7 +50,25 @@ You can check if it was loaded correctly with
 ```
 airflow providers get airflow-provider-aiida
 ```
-So far you need to copy the dags manually to airflow dags folder, I am still looking into it if it can be automatized `[dag_processor]`.
+
+### Using the AiiDA DAG Bundle
+
+To automatically load DAGs from the `aiida.dags` entry point, configure the DAG bundle in your `airflow.cfg`:
+
+```ini
+[dag_processor]
+dag_bundle_config_list = [
+    {
+      "name": "aiida_dags",
+      "classpath": "airflow_provider_aiida.bundles.aiida_dag_bundle.AiidaDagBundle",
+      "kwargs": {}
+    }
+]
+```
+
+See [docs/dag_bundle.md](docs/dag_bundle.md) for more details on how to use the DAG bundle and contribute your own workflows.
+
+Alternatively, you can manually copy DAGs to the Airflow DAGs folder:
 ```
 mkdir ~/airflow/dags/
 cp -r src/airflow_provider_aiida/example_dags/*py ~/airflow/dags/
