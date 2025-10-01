@@ -41,8 +41,7 @@ content-type = "text/markdown"
 provider_info = "airflow_provider_aiida.__init__:get_provider_info"
 
 [project.entry-points."aiida.dags"]
-arithmetic_add = "airflow_provider_aiida.example_dags.arithmetic_add"
-test_while_loop = "airflow_provider_aiida.example_dags.test_while_loop"
+aiida-standard = "airflow_provider_aiida.example_dags"
 
 [tool.hatch.version]
 path = "src/airflow_provider_aiida/__init__.py"

@@ -26,12 +26,16 @@ pip install .
 
 For project management we use [hatch](https://hatch.pypa.io/latest/install/).
 
-Run tests
+You might need to serialize the dags in the `dags_example` manually before running the tests.
+```
+hatch run test:airflow dags reserialize
+```
+Then
 ```shell
 # Runs all tests
 hatch test
  # Runs test_calcjob test
-hatch run test:run tests/operators/test_calcjob.py
+hatch run test:pytest tests/operators/test_calcjob.py
 ```
 
 Run formatting
@@ -68,16 +72,11 @@ dag_bundle_config_list = [
 
 See [docs/dag_bundle.md](docs/dag_bundle.md) for more details on how to use the DAG bundle and contribute your own workflows.
 
-Alternatively, you can manually copy DAGs to the Airflow DAGs folder:
+You need to create a `localhost` connection 
 ```
-mkdir ~/airflow/dags/
-cp -r src/airflow_provider_aiida/example_dags/*py ~/airflow/dags/
+airflow connections add localhost --conn-host localhost --conn-login alexgo --conn-type aiida_ssh
 ```
-To run the `arithmetic_add_multiply` dag you need for now create custom folders
-```
-mkdir ~/airflow/local_workdir/
-mkdir ~/airflow/remote_workdir/
-```
+You can add new dags by putting it into the `dags_example` submodule.
 
 The webserver can be accessed on `http://localhost:8080`
 The authentication information are written in `$AIRFLOW_HOME/simple_auth_manager_passwords.json.generated`
