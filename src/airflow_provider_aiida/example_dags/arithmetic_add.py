@@ -170,6 +170,10 @@ with DAG(
         "machine": Param("localhost", type="string"),
         "local_workdir": Param("/tmp/airflow/local_workdir", type="string"),
         "remote_workdir": Param("/tmp/airflow/remote_workdir", type="string"),
+        "add_x": Param(8, type="integer", description="First operand for addition"),
+        "add_y": Param(4, type="integer", description="Second operand for addition"),
+        "multiply_x": Param(6, type="integer", description="First operand for multiplication"),
+        "multiply_y": Param(9, type="integer", description="Second operand for multiplication"),
     }
 ) as dag:
 
@@ -180,8 +184,8 @@ with DAG(
         machine="{{ params.machine }}",
         local_workdir="{{ params.local_workdir }}/addition_job",
         remote_workdir="{{ params.remote_workdir }}/addition_job",
-        x=8,
-        y=4,
+        x="{{ params.add_x }}",
+        y="{{ params.add_y }}",
         sleep=3,
     )
 
@@ -190,8 +194,8 @@ with DAG(
         machine="{{ params.machine }}",
         local_workdir="{{ params.local_workdir }}/multiplication_job",
         remote_workdir="{{ params.remote_workdir }}/multiplication_job",
-        x=6,
-        y=9,
+        x="{{ params.multiply_x }}",
+        y="{{ params.multiply_y }}",
         sleep=2,
     )
 
