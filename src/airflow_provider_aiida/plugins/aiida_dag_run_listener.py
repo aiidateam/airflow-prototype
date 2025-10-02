@@ -13,8 +13,8 @@ from aiida.common.links import LinkType
 import json
 
 # Add dags directory to path for CalcJobTaskGroup import
-sys.path.append('/home/geiger_j/aiida_projects/aiida-airflow/git-repos/airflow-prototype/dags/')
-from calcjob_inheritance import CalcJobTaskGroup
+# sys.path.append('/home/geiger_j/aiida_projects/aiida-airflow/git-repos/airflow-prototype/dags/')
+# from calcjob_inheritance import CalcJobTaskGroup
 
 load_profile()
 
@@ -453,6 +453,7 @@ def _create_workchain_node_with_inputs(dag_run: DagRun) -> orm.WorkChainNode:
     workchain_node.store()
 
     logger.info(f"Created WorkChainNode {workchain_node.pk} for DAG {dag_run.dag_id}")
+    breakpoint()
     return workchain_node
 
 
