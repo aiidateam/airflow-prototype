@@ -40,6 +40,10 @@ content-type = "text/markdown"
 [project.entry-points.apache_airflow_provider]
 provider_info = "airflow_provider_aiida.__init__:get_provider_info"
 
+[project.entry-points."airflow.plugins"]
+aiida_dag_run_listener = "airflow_provider_aiida.plugins.aiida_dag_run_listener:AiidaDagRunListener"
+aiida_ui = "airflow_provider_aiida.plugins.aiida_ui:AiidaUI"
+
 [project.entry-points."aiida.dags"]
 aiida-standard = "airflow_provider_aiida.example_dags"
 

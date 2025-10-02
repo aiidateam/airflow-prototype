@@ -33,7 +33,11 @@ def get_provider_info():
         "plugins": [
             {
                 "name": "dagrun_tracking_plugin",
-                "plugin-class": "airflow_provider_aiida.plugins.dagrun_listener:DagRunTrackingPlugin",
+                "plugin-class": "airflow_provider_aiida.plugins.dagrun_listener.DagRunTrackingPlugin",
+            },
+            {
+                "name": "aiida_plugin",
+                "plugin-class": "airflow_provider_aiida.plugins.custom_ui.AirflowTestPlugin",
             }
         ],
         "versions": [__version__],  # Required
