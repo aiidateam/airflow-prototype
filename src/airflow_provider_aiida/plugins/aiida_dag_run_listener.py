@@ -6,6 +6,7 @@ from airflow.plugins_manager import AirflowPlugin
 from airflow.listeners import hookimpl
 from airflow.models import DagRun, XCom
 from airflow.utils.state import DagRunState
+from sqlalchemy import inspect as sqlalchemy_inspect
 
 logger = logging.getLogger(__name__)
 
@@ -92,16 +93,36 @@ def _store_dagrun_event(dagrun: DagRun, event_type: str):
     """Store dagrun event information to SQLite database."""
     try:
         # IMPORTANT: Extract all needed attributes FIRST to avoid DetachedInstanceError
-        # This must happen before any database operations
+        # Use SQLAlchemy inspect to check if attributes are loaded
+        inspector = sqlalchemy_inspect(dagrun)
+
+        # Check which attributes are loaded to avoid triggering lazy loads
+        unloaded = inspector.unloaded
+
+        # Access ALL attributes while still in session context
         dag_id = dagrun.dag_id
         run_id = dagrun.run_id
-        run_type_str = dagrun.run_type.value if hasattr(dagrun.run_type, 'value') else str(dagrun.run_type) if dagrun.run_type else None
-        state_str = dagrun.state.value if hasattr(dagrun.state, 'value') else str(dagrun.state) if dagrun.state else None
-        execution_date = getattr(dagrun, 'execution_date', None)
-        start_date = getattr(dagrun, 'start_date', None)
-        end_date = getattr(dagrun, 'end_date', None)
-        external_trigger = getattr(dagrun, 'external_trigger', False)
-        conf = getattr(dagrun, 'conf', {})
+
+        # Safely extract run_type - only access if already loaded
+        if 'run_type' not in unloaded:
+            run_type = dagrun.run_type
+            run_type_str = run_type.value if hasattr(run_type, 'value') else str(run_type) if run_type else None
+        else:
+            run_type_str = None
+
+        # Safely extract state - only access if already loaded to avoid session refresh
+        if '_state' not in unloaded:
+            state = dagrun._state
+            state_str = state.value if hasattr(state, 'value') else str(state) if state else None
+        else:
+            state_str = None
+
+        # Safely extract other attributes
+        execution_date = dagrun.execution_date if 'execution_date' not in unloaded else None
+        start_date = dagrun.start_date if 'start_date' not in unloaded else None
+        end_date = dagrun.end_date if 'end_date' not in unloaded else None
+        external_trigger = dagrun.external_trigger if 'external_trigger' not in unloaded else False
+        conf = dagrun.conf if 'conf' not in unloaded else {}
 
         logger.info(f"[DEBUG] Starting to store {event_type} event")
         logger.info(f"[DEBUG] DB_PATH: {DB_PATH}")
