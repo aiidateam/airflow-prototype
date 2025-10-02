@@ -122,6 +122,8 @@ with DAG(
     }
 
     # NEW: Instead of run.get_node(), create TaskGroup
+    # Once we replace the engine, this will eventually will be backward compatible. 
+    # Like the usual `engine.run(builder)`
     pw_calc = PwCalculation.from_builder(
         builder=builder,
         group_id='pw_scf_calculation',
