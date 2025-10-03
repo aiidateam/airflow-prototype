@@ -20,11 +20,20 @@ class AddJobTaskGroup(CalcJobTaskGroup):
 
     def prepare(self, **context) -> Dict[str, Any]:
         """Prepare addition job inputs"""
+        # Resolve template variables from params
+        from airflow.models import TaskInstance
+        ti: TaskInstance = context['task_instance']
+        params = context['params']
+
+        x = params['add_x']
+        y = params['add_y']
+        sleep = 3  # or get from params if needed
+
         to_upload_files = {}
 
         submission_script = f"""
-sleep {self.sleep}
-echo "$(({self.x}+{self.y}))" > result.out
+sleep {sleep}
+echo "$(({x}+{y}))" > result.out
         """
 
         to_receive_files = {"result.out": "addition_result.txt"}
@@ -84,12 +93,21 @@ class MultiplyJobTaskGroup(CalcJobTaskGroup):
 
     def prepare(self, **context) -> Dict[str, Any]:
         """Prepare multiplication job inputs"""
+        # Resolve template variables from params
+        from airflow.models import TaskInstance
+        ti: TaskInstance = context['task_instance']
+        params = context['params']
+
+        x = params['multiply_x']
+        y = params['multiply_y']
+        sleep = 2  # or get from params if needed
+
         to_upload_files = {}
 
         submission_script = f"""
-sleep {self.sleep}
-echo "$(({self.x}*{self.y}))" > multiply_result.out
-echo "Operation: {self.x} * {self.y}" > operation.log
+sleep {sleep}
+echo "$(({x}*{y}))" > multiply_result.out
+echo "Operation: {x} * {y}" > operation.log
         """
 
         to_receive_files = {
