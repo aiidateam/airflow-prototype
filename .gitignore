@@ -7,6 +7,7 @@ logs
 simple_auth_manager_passwords.json.generated
 airflow.db-shm
 airflow.db-wal
+aiida-quantumespresso
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

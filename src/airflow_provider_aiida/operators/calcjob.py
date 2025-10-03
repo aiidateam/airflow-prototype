@@ -55,8 +55,21 @@ class UploadOperator(BaseOperator):
                 # Create remote working directory if it doesn't exist
                 connection.makedirs(str(remote_workdir), ignore_existing=True)
                 for localpath, remotepath in to_upload_files.items():
+                    local_file = Path(localpath).absolute()
                     remote_path = remote_workdir / Path(remotepath)
-                    connection.putfile(Path(localpath).absolute(), remote_path)
+
+                    # Debug: Check if local file exists
+                    if not local_file.exists():
+                        self.log.error(f"Local file does not exist: {local_file}")
+                        raise FileNotFoundError(f"Local file not found: {local_file}")
+
+                    # Create remote parent directory if needed
+                    remote_parent = remote_path.parent
+                    if remote_parent != remote_workdir:
+                        connection.makedirs(str(remote_parent), ignore_existing=True)
+
+                    self.log.info(f"Uploading {local_file} -> {remote_path}")
+                    connection.putfile(local_file, remote_path)
 
         loop =  asyncio.get_event_loop()
         loop.run_until_complete(upload_files())
@@ -67,7 +80,7 @@ class SubmitOperator(BaseOperator):
 
     def __init__(self, machine: str, local_workdir: str, remote_workdir: str, submission_script: str, **kwargs):
         super().__init__(**kwargs)
-        self.machine = machine
+        self.machine = machine or "localhost"
         self.local_workdir = local_workdir
         self.remote_workdir = remote_workdir
         self.submission_script = submission_script
@@ -95,7 +108,7 @@ class SubmitOperator(BaseOperator):
         # Use TransportQueue for SSH operations
         import asyncio
         transport_queue = get_transport_queue()
-        authinfo = get_authinfo_cached(self.machine or "localhost")
+        authinfo = get_authinfo_cached(self.machine)
 
         async def submit_job():
             with transport_queue.request_transport(authinfo) as request:
@@ -108,8 +121,15 @@ class SubmitOperator(BaseOperator):
                 connection.putfile(submission_script_path, remote_script)
                 self.log.info(f"Uploaded submission script to: {remote_script}")
                 # Execute submission command
+                # TODO: this is a temporarly solution as we are not creating _aiida.sh file
+                # this has to be fixed once we utalize aiida's scheduler layer
+                if self.machine == "localhost":
+                    command=f"(bash submit.sh > /dev/null 2>&1 & echo $!) &"
+                else:
+                    command="sbatch submit.sh"
+
                 exit_code, stdout, stderr = connection.exec_command_wait(
-                    f"(bash submit.sh > /dev/null 2>&1 & echo $!) &",
+                    command,
                     workdir=str(remote_workdir)
                 )
                 return exit_code, stdout, stderr
@@ -120,12 +140,25 @@ class SubmitOperator(BaseOperator):
         if exit_code != 0:
             raise ValueError(f"Submission did not work, {stderr}")
 
-        job_id = int(stdout.strip())
-        self.log.info(f"Output of submission of process: {job_id}")
+        if self.machine == "localhost":
+            job_id = int(stdout.strip())
+            self.log.info(f"Output of submission of process: {job_id}")
+        else:
+            # This is supposedly SLURM, 
+            # TODO: use aiida-core scheduler to handle this
+            # Parse job ID from sbatch output (format: "Submitted batch job 12345")
+            import re
+            match = re.search(r'Submitted batch job (\d+)', stdout)
+            if match:
+                job_id = int(match.group(1))
+            else:
+                # Fallback: try to parse as direct integer (for non-SLURM schedulers)
+                job_id = int(stdout.strip())
+            self.log.info(f"Submitted SLURM job ID: {job_id}")
         return job_id
 
 class UpdateOperator(BaseOperator):
-    template_fields = ["machine", "sleep"]
+    template_fields = ["machine"]
 
     def __init__(self, machine: str, job_id: int, sleep: int = 2, **kwargs):
         super().__init__(**kwargs)
@@ -158,16 +191,41 @@ class UpdateOperator(BaseOperator):
         async def check_job():
             with transport_queue.request_transport(authinfo) as request:
                 connection = await request
-                # -0 does not kill the process, only verifies it
-                retval, stdout_bytes, stderr_bytes = connection.exec_command_wait(f"kill -0 {job_id}")
-                return retval
+                if self.machine == "localhost":
+                    # -0 does not kill the process, only verifies it
+                    retval, stdout_bytes, stderr_bytes = connection.exec_command_wait(f"kill -0 {job_id}")
+                else:
+                    # Check SLURM job status using squeue
+                    retval, stdout_bytes, stderr_bytes = connection.exec_command_wait(
+                        f"squeue -j {job_id} -h -o %T"
+                    )
+                return retval, stdout_bytes
 
         loop =  asyncio.get_event_loop()
-        retval = loop.run_until_complete(check_job())
+        retval, stdout_bytes = loop.run_until_complete(check_job())
 
-        self.log.info(f"retval={retval}")
-        return bool(retval)
-        # TODO check why it is not alive
+        if self.machine == "localhost":
+            # TODO check why it is not alive
+            self.log.info(f"retval={retval}")
+            return bool(retval)
+        else:
+            # Check job state
+            job_state = stdout_bytes.strip()
+            self.log.info(f"Job {job_id} squeue returned: retval={retval}, state='{job_state}'")
+
+            # If squeue returns non-zero OR empty output, job is not in queue (completed or failed)
+            if retval != 0 or not job_state:
+                self.log.info(f"Job {job_id} not in queue anymore (completed or failed)")
+                return True  # Job is done (no longer alive)
+
+            self.log.info(f"Job {job_id} current state: {job_state}")
+
+            # Job is done if it's in COMPLETED, FAILED, CANCELLED, etc.
+            # Still running if PENDING, RUNNING, etc.
+            done_states = ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'NODE_FAIL', 'PREEMPTED']
+            is_done = job_state in done_states
+
+            return is_done
 
 
 class ReceiveOperator(BaseOperator):
@@ -210,7 +268,17 @@ class ReceiveOperator(BaseOperator):
                 for remotepath, localpath in to_receive_files.items():
                     remote_file = remote_workdir / Path(remotepath)
                     local_file = local_workdir / Path(localpath)
-                    connection.getfile(remote_file, local_file)
+
+                    # Check if remote file exists before trying to download
+                    # TODO: this skips non existing files. To be investigated if that's how aiida/aiida-qe works
+                    try:
+                        if connection.isfile(str(remote_file)):
+                            self.log.info(f"Downloading {remote_file} -> {local_file}")
+                            connection.getfile(remote_file, local_file)
+                        else:
+                            self.log.warning(f"Remote file does not exist (skipping): {remote_file}")
+                    except Exception as e:
+                        self.log.warning(f"Failed to download {remote_file}: {e}")
 
         loop =  asyncio.get_event_loop()
         return loop.run_until_complete(download_files())
