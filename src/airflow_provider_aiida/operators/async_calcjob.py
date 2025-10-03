@@ -27,7 +27,13 @@ class AsyncUploadOperator(BaseOperator):
         # Pull to_upload_files from XCom if it's empty
         to_upload_files = self.to_upload_files
         if not to_upload_files:
-            to_upload_files = context['task_instance'].xcom_pull(task_ids='prepare', key='to_upload_files')
+            # Get the task group ID to construct the correct task_id
+            task_group_id = self.task_group.group_id if self.task_group else None
+            prepare_task_id = f'{task_group_id}.prepare' if task_group_id else 'prepare'
+            to_upload_files = context['task_instance'].xcom_pull(task_ids=prepare_task_id, key='to_upload_files')
+
+        if to_upload_files is None:
+            raise ValueError("to_upload_files cannot be None. Either provide it as a parameter or ensure it's available in XCom.")
 
         self.defer(
             trigger=UploadTrigger(
@@ -59,7 +65,13 @@ class AsyncSubmitOperator(BaseOperator):
         # Pull submission_script from XCom if it's empty
         submission_script = self.submission_script
         if not submission_script:
-            submission_script = context['task_instance'].xcom_pull(task_ids='prepare', key='submission_script')
+            # Get the task group ID to construct the correct task_id
+            task_group_id = self.task_group.group_id if self.task_group else None
+            prepare_task_id = f'{task_group_id}.prepare' if task_group_id else 'prepare'
+            submission_script = context['task_instance'].xcom_pull(task_ids=prepare_task_id, key='submission_script')
+
+        if submission_script is None:
+            raise ValueError("submission_script cannot be None. Either provide it as a parameter or ensure it's available in XCom.")
 
         self.defer(
             trigger=SubmitTrigger(
@@ -123,7 +135,13 @@ class AsyncReceiveOperator(BaseOperator):
         # Pull to_receive_files from XCom if it's empty
         to_receive_files = self.to_receive_files
         if not to_receive_files:
-            to_receive_files = context['task_instance'].xcom_pull(task_ids='prepare', key='to_receive_files')
+            # Get the task group ID to construct the correct task_id
+            task_group_id = self.task_group.group_id if self.task_group else None
+            prepare_task_id = f'{task_group_id}.prepare' if task_group_id else 'prepare'
+            to_receive_files = context['task_instance'].xcom_pull(task_ids=prepare_task_id, key='to_receive_files')
+
+        if to_receive_files is None:
+            raise ValueError("to_receive_files cannot be None. Either provide it as a parameter or ensure it's available in XCom.")
 
         self.defer(
             trigger=ReceiveTrigger(
