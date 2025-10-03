@@ -11,6 +11,10 @@ from airflow_provider_aiida.taskgroups.calcjob import CalcJobTaskGroup
 class AddJobTaskGroup(CalcJobTaskGroup):
     """Addition job task group - directly IS a TaskGroup"""
 
+    # Define AiiDA input/output port names (like in aiida-core CalcJob.define())
+    # AIIDA_INPUT_PORTS = ['x', 'y']
+    # AIIDA_OUTPUT_PORTS = ['sum']
+
     def __init__(self, group_id: str, machine: str, local_workdir: str, remote_workdir: str,
                  x: int, y: int, sleep: int, **kwargs):
         self.x = x
@@ -43,6 +47,9 @@ echo "$(({x}+{y}))" > result.out
         context['task_instance'].xcom_push(key='submission_script', value=submission_script)
         context['task_instance'].xcom_push(key='to_receive_files', value=to_receive_files)
 
+        # Push AiiDA inputs for provenance (matches AIIDA_INPUT_PORTS)
+        context['task_instance'].xcom_push(key='aiida_inputs', value={'x': x, 'y': y})
+
         return {
             "to_upload_files": to_upload_files,
             "submission_script": submission_script,
@@ -68,7 +75,7 @@ echo "$(({x}+{y}))" > result.out
                     continue
 
                 result_content = file_path.read_text().strip()
-                print(f"Addition result ({self.x} + {self.y}): {result_content}")
+                print(f"Addition result: {result_content}")
                 results[file_key] = int(result_content)
 
         except Exception as e:
@@ -78,11 +85,20 @@ echo "$(({x}+{y}))" > result.out
         # Store both exit status and results in XCom
         final_result = (exit_status, results)
         context['task_instance'].xcom_push(key='final_result', value=final_result)
+
+        # Push AiiDA outputs for provenance (matches AIIDA_OUTPUT_PORTS)
+        if 'result.out' in results:
+            context['task_instance'].xcom_push(key='aiida_outputs', value={'sum': results['result.out']})
+
         return final_result
 
 
 class MultiplyJobTaskGroup(CalcJobTaskGroup):
     """Multiplication job task group - directly IS a TaskGroup"""
+
+    # Define AiiDA input/output port names (like in aiida-core CalcJob.define())
+    # AIIDA_INPUT_PORTS = ['x', 'y']
+    # AIIDA_OUTPUT_PORTS = ['result']
 
     def __init__(self, group_id: str, machine: str, local_workdir: str, remote_workdir: str,
                  x: int, y: int, sleep: int, **kwargs):
@@ -119,6 +135,9 @@ echo "Operation: {x} * {y}" > operation.log
         context['task_instance'].xcom_push(key='to_upload_files', value=to_upload_files)
         context['task_instance'].xcom_push(key='submission_script', value=submission_script)
         context['task_instance'].xcom_push(key='to_receive_files', value=to_receive_files)
+
+        # Push AiiDA inputs for provenance (matches AIIDA_INPUT_PORTS)
+        context['task_instance'].xcom_push(key='aiida_inputs', value={'x': x, 'y': y})
 
         return {
             "to_upload_files": to_upload_files,
@@ -164,6 +183,11 @@ echo "Operation: {x} * {y}" > operation.log
         # Store both exit status and results in XCom
         final_result = (exit_status, results)
         context['task_instance'].xcom_push(key='final_result', value=final_result)
+
+        # Push AiiDA outputs for provenance (matches AIIDA_OUTPUT_PORTS)
+        if 'result' in results:
+            context['task_instance'].xcom_push(key='aiida_outputs', value={'result': results['result']})
+
         return final_result
 
 

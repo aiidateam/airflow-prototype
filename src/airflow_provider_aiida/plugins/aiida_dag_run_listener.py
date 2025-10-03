@@ -204,10 +204,8 @@ def _store_taskgroup_inputs(
     """
     Store all inputs for a CalcJobTaskGroup.
 
-    Inputs come from:
-    1. The prepare task's XCom outputs (to_upload_files, submission_script, to_receive_files)
-    2. The CalcJobTaskGroup instance's parameters (x, y, sleep, etc.)
-    3. DAG-level params and conf
+    Inputs should be explicitly stored by the prepare task in XCom with key 'aiida_inputs'.
+    This allows each TaskGroup to define its own input structure.
 
     Args:
         node: The CalcJobNode to link inputs to
@@ -217,73 +215,22 @@ def _store_taskgroup_inputs(
     group_id = _get_taskgroup_id_from_parse_task(task_instance)
     prepare_task_id = f"{group_id}.prepare"
 
-    # Get the prepare task instance to access its XCom data
-    prepare_ti = None
-    for ti in dag_run.get_task_instances():
-        if ti.task_id == prepare_task_id:
-            prepare_ti = ti
-            break
-
-    if not prepare_ti:
-        logger.warning(f"Could not find prepare task {prepare_task_id}")
-        return
-
-    # Store prepare task outputs as inputs to the CalcJob
+    # Try to get inputs explicitly defined by the prepare task
     try:
-        to_upload_files = task_instance.xcom_pull(
-            task_ids=prepare_task_id, key="to_upload_files"
+        aiida_inputs = task_instance.xcom_pull(
+            task_ids=prepare_task_id, key="aiida_inputs"
         )
-        if to_upload_files:
-            aiida_data = _convert_to_aiida_data(to_upload_files)
-            if aiida_data:
-                aiida_data.store()
-                node.base.links.add_incoming(
-                    aiida_data,
-                    link_type=LinkType.INPUT_CALC,
-                    link_label="to_upload_files",
-                )
+        if aiida_inputs and isinstance(aiida_inputs, dict):
+            _store_params_as_aiida_inputs(node, aiida_inputs, prefix="")
+            return
     except Exception as e:
-        logger.debug(f"Could not store to_upload_files: {e}")
+        logger.debug(f"Could not retrieve aiida_inputs from prepare task: {e}")
 
-    try:
-        submission_script = task_instance.xcom_pull(
-            task_ids=prepare_task_id, key="submission_script"
-        )
-        if submission_script:
-            aiida_data = _convert_to_aiida_data(submission_script)
-            if aiida_data:
-                aiida_data.store()
-                node.base.links.add_incoming(
-                    aiida_data,
-                    link_type=LinkType.INPUT_CALC,
-                    link_label="submission_script",
-                )
-    except Exception as e:
-        logger.debug(f"Could not store submission_script: {e}")
-
-    try:
-        to_receive_files = task_instance.xcom_pull(
-            task_ids=prepare_task_id, key="to_receive_files"
-        )
-        if to_receive_files:
-            aiida_data = _convert_to_aiida_data(to_receive_files)
-            if aiida_data:
-                aiida_data.store()
-                node.base.links.add_incoming(
-                    aiida_data,
-                    link_type=LinkType.INPUT_CALC,
-                    link_label="to_receive_files",
-                )
-    except Exception as e:
-        logger.debug(f"Could not store to_receive_files: {e}")
-
-    # Store DAG-level params and conf
-    if dag_run.conf:
-        _store_params_as_aiida_inputs(node, dag_run.conf, prefix="conf")
-
-    dag_params = getattr(dag_run.dag, "params", {})
-    if dag_params:
-        _store_params_as_aiida_inputs(node, dag_params, prefix="dag_param")
+    # If no explicit inputs provided, log a warning
+    logger.warning(
+        f"No 'aiida_inputs' found in XCom for {prepare_task_id}. "
+        f"CalcJobTaskGroup should push a dict with key 'aiida_inputs' containing input data."
+    )
 
 
 def _store_taskgroup_outputs(
@@ -292,65 +239,37 @@ def _store_taskgroup_outputs(
     """
     Store all outputs from a CalcJobTaskGroup.
 
-    Outputs come from the parse task's XCom data (final_result).
+    Outputs should be explicitly stored by the parse task in XCom with key 'aiida_outputs'.
+    This allows each TaskGroup to define its own output structure.
 
     Args:
         node: The CalcJobNode to link outputs to
         task_instance: The parse task instance
     """
     try:
-        # Get the final_result from the parse task
-        final_result = task_instance.xcom_pull(
-            task_ids=task_instance.task_id, key="final_result"
+        # Try to get outputs explicitly defined by the parse task
+        aiida_outputs = task_instance.xcom_pull(
+            task_ids=task_instance.task_id, key="aiida_outputs"
         )
 
-        if final_result:
-            # Handle tuple format (exit_status, results) from AddJobTaskGroup
-            if isinstance(final_result, tuple) and len(final_result) == 2:
-                exit_status, results = final_result
-
-                # Store exit status
-                exit_status_node = orm.Int(exit_status)
-                exit_status_node.store()
-                exit_status_node.base.links.add_incoming(
-                    node, link_type=LinkType.CREATE, link_label="exit_status"
-                )
-
-                # Store results dict
-                if results:
-                    for key, value in results.items():
-                        aiida_data = _convert_to_aiida_data(value)
-                        if aiida_data:
-                            aiida_data.store()
-                            aiida_data.base.links.add_incoming(
-                                node,
-                                link_type=LinkType.CREATE,
-                                link_label=f"result_{key}",
-                            )
-
-            # Handle dict format from MultiplyJobTaskGroup
-            elif isinstance(final_result, dict):
-                for key, value in final_result.items():
-                    aiida_data = _convert_to_aiida_data(value)
-                    if aiida_data:
-                        aiida_data.store()
-                        aiida_data.base.links.add_incoming(
-                            node, link_type=LinkType.CREATE, link_label=f"result_{key}"
-                        )
-
-            # Handle other formats
-            else:
-                aiida_data = _convert_to_aiida_data(final_result)
+        if aiida_outputs and isinstance(aiida_outputs, dict):
+            for key, value in aiida_outputs.items():
+                aiida_data = _convert_to_aiida_data(value)
                 if aiida_data:
                     aiida_data.store()
                     aiida_data.base.links.add_incoming(
-                        node, link_type=LinkType.CREATE, link_label="final_result"
+                        node, link_type=LinkType.CREATE, link_label=key
                     )
+            return
 
     except Exception as e:
-        logger.warning(
-            f"Could not retrieve outputs for task {task_instance.task_id}: {e}"
-        )
+        logger.debug(f"Could not retrieve aiida_outputs from parse task: {e}")
+
+    # If no explicit outputs provided, log a warning
+    logger.warning(
+        f"No 'aiida_outputs' found in XCom for {task_instance.task_id}. "
+        f"CalcJobTaskGroup parse method should push a dict with key 'aiida_outputs' containing output data."
+    )
 
 
 def _create_calcjob_node_from_taskgroup(
@@ -372,7 +291,7 @@ def _create_calcjob_node_from_taskgroup(
     group_id = _get_taskgroup_id_from_parse_task(task_instance)
 
     node = orm.CalcJobNode()
-    node.label = f"airflow_calcjob_group_{group_id}"
+    node.label = group_id
     node.description = f"CalcJob from Airflow TaskGroup {group_id}"
 
     # Store Airflow metadata in extras
@@ -380,8 +299,8 @@ def _create_calcjob_node_from_taskgroup(
     node.base.extras.set("airflow_run_id", task_instance.run_id)
     node.base.extras.set("airflow_task_group_id", group_id)
 
-    # Set process metadata
-    node.set_process_type(f"airflow.CalcJobTaskGroup")
+    # Set process type to the group ID
+    node.set_process_type(group_id)
     node.set_process_state("finished")
 
     # Determine exit status from parse task result
@@ -433,27 +352,36 @@ def _create_workchain_node_with_inputs(dag_run: DagRun) -> orm.WorkChainNode:
         The created and stored WorkChainNode
     """
     workchain_node = orm.WorkChainNode()
-    workchain_node.label = f"airflow_dag_{dag_run.dag_id}"
+    workchain_node.label = dag_run.dag_id
     workchain_node.description = f"Workflow from Airflow DAG {dag_run.dag_id}"
 
     workchain_node.base.extras.set("airflow_dag_id", dag_run.dag_id)
     workchain_node.base.extras.set("airflow_run_id", dag_run.run_id)
 
-    # Store ALL DAG parameters generically
-    dag_params = getattr(dag_run.dag, "params", {})
-    if dag_params:
-        _store_params_as_aiida_inputs(workchain_node, dag_params, prefix="dag_param")
+    # Set process type to the DAG ID
+    workchain_node.set_process_type(dag_run.dag_id)
 
-    # Store ALL DAG configuration generically
+    # Store DAG parameters with clean names (no prefixes)
+    # Use conf if available, otherwise use default params
     dag_conf = getattr(dag_run, "conf", {})
-    if dag_conf:
-        _store_params_as_aiida_inputs(workchain_node, dag_conf, prefix="conf")
+    dag_params = getattr(dag_run.dag, "params", {})
+
+    # Prefer conf values (runtime overrides), fall back to default params
+    params_to_store = {}
+    for key, param in dag_params.items():
+        # Get actual value from conf or use default
+        if dag_conf and key in dag_conf:
+            params_to_store[key] = dag_conf[key]
+        else:
+            params_to_store[key] = _param_to_python(param)
+
+    # Store with clean names (no prefix)
+    _store_params_as_aiida_inputs(workchain_node, params_to_store, prefix="")
 
     workchain_node.set_process_state("running")
     workchain_node.store()
 
     logger.info(f"Created WorkChainNode {workchain_node.pk} for DAG {dag_run.dag_id}")
-    breakpoint()
     return workchain_node
 
 
