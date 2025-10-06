@@ -186,7 +186,12 @@ class UpdateOperator(BaseOperator):
         import asyncio
         transport_queue = get_transport_queue()
         authinfo = get_authinfo_cached(self.machine or "localhost")
-        job_id = self.job_id.resolve(context)
+
+        # Handle both direct int and templated values
+        if hasattr(self.job_id, 'resolve'):
+            job_id = self.job_id.resolve(context)
+        else:
+            job_id = self.job_id
 
         async def check_job():
             with transport_queue.request_transport(authinfo) as request:
