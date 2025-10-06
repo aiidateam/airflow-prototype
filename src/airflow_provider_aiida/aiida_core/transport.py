@@ -105,11 +105,18 @@ _AUTHINFO_CACHE: Dict[str, Any] = {}
 
 
 def get_transport_queue() -> TransportQueue:
-    """Return a per-process shared TransportQueue instance."""
-    global _TRANSPORT_QUEUE
-    if _TRANSPORT_QUEUE is None:
-        _TRANSPORT_QUEUE = TransportQueue()
-    return _TRANSPORT_QUEUE
+    """Return a TransportQueue instance using the current event loop.
+
+    Note: Always creates a new TransportQueue to ensure it uses the current
+    event loop. This is necessary because Airflow triggers run in different
+    async contexts with different event loops.
+    """
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+    return TransportQueue(loop=loop)
 
 
 def get_authinfo_cached(conn_id: str):
