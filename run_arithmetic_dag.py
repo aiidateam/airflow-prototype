@@ -30,8 +30,13 @@ dagbag = DagBag(dag_folder=dag_folder, include_examples=False)
 dag = dagbag.get_dag("arithmetic_add_multiply")
 
 # Use test mode with execution_date to avoid serialization issues
-from datetime import datetime
+
 dag.test(
     run_conf=conf,
-    use_executor=False  # Run tasks sequentially in the same process
+    # execution_date=datetime.now(),
+    use_executor=False,  # Run tasks sequentially in the same process
 )
+
+# Trigger DAG using API client (requires scheduler to be running)
+# client: Client = Client()
+# client.trigger_dag(dag_id="arithmetic_add_multiply", conf=conf)
