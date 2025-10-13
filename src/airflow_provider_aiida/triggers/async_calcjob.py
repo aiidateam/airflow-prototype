@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -8,6 +9,8 @@ from airflow_provider_aiida.aiida_core.transport import (
     get_transport_queue,
     get_authinfo_cached,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class UploadTrigger(BaseTrigger):
@@ -46,6 +49,8 @@ class UploadTrigger(BaseTrigger):
 
             with transport_queue.request_transport(authinfo) as request:
                 connection = await request
+                # Create remote workdir if it doesn't exist
+                connection.makedirs(str(remote_workdir), ignore_existing=True)
                 for localpath, remotepath in self.to_upload_files.items():
                     connection.putfile(
                         Path(localpath).absolute(),
@@ -87,6 +92,9 @@ class SubmitTrigger(BaseTrigger):
             local_workdir = Path(self.local_workdir)
             remote_workdir = Path(self.remote_workdir)
 
+            # Create local workdir if it doesn't exist
+            local_workdir.mkdir(parents=True, exist_ok=True)
+
             submission_script_path = local_workdir / Path("submit.sh")
             submission_script_path.write_text(self.submission_script)
 
@@ -94,13 +102,15 @@ class SubmitTrigger(BaseTrigger):
             authinfo = get_authinfo_cached(self.machine or "localhost")
             with transport_queue.request_transport(authinfo) as request:
                 connection = await request
+                # Create remote workdir if it doesn't exist
+                connection.makedirs(str(remote_workdir), ignore_existing=True)
                 connection.putfile(
                     submission_script_path,
                     remote_workdir / "submit.sh"
                 )
                 exit_code, stdout, stderr = connection.exec_command_wait(
-                    f"(bash {submission_script_path} > /dev/null 2>&1 & echo $!) &",
-                    workdir=remote_workdir
+                    f"(bash submit.sh > /dev/null 2>&1 & echo $!) &",
+                    workdir=str(remote_workdir)
                 )
 
             if exit_code != 0:
@@ -195,14 +205,33 @@ class ReceiveTrigger(BaseTrigger):
             local_workdir = Path(self.local_workdir)
             remote_workdir = Path(self.remote_workdir)
 
+            # Create local workdir if it doesn't exist
+            local_workdir.mkdir(parents=True, exist_ok=True)
+
             transport_queue = get_transport_queue()
             authinfo = get_authinfo_cached(self.machine or "localhost")
             with transport_queue.request_transport(authinfo) as request:
                 connection = await request
                 for remotepath, localpath in self.to_receive_files.items():
+                    remote_file = remote_workdir / Path(remotepath)
+                    local_file = local_workdir / Path(localpath)
+                    logger.info(f"ReceiveTrigger: Attempting to retrieve {remote_file} -> {local_file}")
+                    # Check if remote file exists
+                    try:
+                        if not connection.isfile(str(remote_file)):
+                            logger.error(f"ReceiveTrigger: Remote file does not exist: {remote_file}")
+                            # List remote directory contents for debugging
+                            try:
+                                remote_files = connection.listdir(str(remote_workdir))
+                                logger.info(f"ReceiveTrigger: Remote workdir contents: {remote_files}")
+                            except Exception as e:
+                                logger.error(f"ReceiveTrigger: Could not list remote workdir: {e}")
+                    except Exception as e:
+                        logger.error(f"ReceiveTrigger: Could not check if file exists: {e}")
+
                     connection.getfile(
-                        remote_workdir / Path(remotepath),
-                        local_workdir / Path(localpath)
+                        remote_file,
+                        local_file
                     )
 
             yield TriggerEvent({"status": "success"})
