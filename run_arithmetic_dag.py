@@ -1,14 +1,14 @@
 from pathlib import Path
 import os
-from airflow.models import DagBag
-from airflow.utils.state import DagRunState
-from datetime import datetime
 
 # Set AIRFLOW__CORE__DAGS_FOLDER to include example_dags
 dag_folder = str(
     Path(__file__).parent / "src" / "airflow_provider_aiida" / "example_dags"
 )
 os.environ["AIRFLOW__CORE__DAGS_FOLDER"] = dag_folder
+
+# Import AFTER setting the environment variable
+from airflow.models import DagBag
 
 # Create directories
 Path("/tmp/airflow/local_workdir").mkdir(parents=True, exist_ok=True)
@@ -25,7 +25,13 @@ conf = {
     "multiply_y": 3,
 }
 
-# Run DAG using Python API
-dagbag = DagBag(dag_folder=dag_folder)
+# Run DAG using test mode (bypasses serialization requirement)
+dagbag = DagBag(dag_folder=dag_folder, include_examples=False)
 dag = dagbag.get_dag("arithmetic_add_multiply")
-dag.test(run_conf=conf)
+
+# Use test mode with execution_date to avoid serialization issues
+from datetime import datetime
+dag.test(
+    run_conf=conf,
+    use_executor=False  # Run tasks sequentially in the same process
+)
