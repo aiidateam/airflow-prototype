@@ -1,5 +1,4 @@
 import logging
-import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -166,12 +165,17 @@ def should_create_calcjob_node_for_taskgroup(task_instance: TaskInstance) -> boo
         # Get task instances from the dag_run
         # Note: In the success hook, we have access to the full dag_run
         from airflow import settings
+
         session = settings.Session()
-        dag_run = session.query(DagRun).filter(
-            DagRun.dag_id == task_instance.dag_id,
-            DagRun.run_id == task_instance.run_id
-        ).first()
-        
+        dag_run = (
+            session.query(DagRun)
+            .filter(
+                DagRun.dag_id == task_instance.dag_id,
+                DagRun.run_id == task_instance.run_id,
+            )
+            .first()
+        )
+
         if dag_run:
             task_instances = dag_run.get_task_instances()
             # Look for the prepare task in the same group
@@ -379,7 +383,7 @@ def _create_workchain_node_with_inputs(dag_run: DagRun) -> orm.WorkChainNode:
 def _finalize_workchain_node(wc_node: orm.WorkChainNode, dag_run: DagRun) -> None:
     """
     Finalize the WorkChainNode and create CalcJobNodes for all completed task groups.
-    
+
     Args:
         wc_node: The WorkChainNode to finalize
         dag_run: The completed DAG run
@@ -402,10 +406,14 @@ class AiiDATaskGroupIntegrationListener:
     """Listener that integrates Airflow CalcJobTaskGroups with AiiDA provenance"""
 
     @hookimpl
+    def on_dag_run_running(self, dag_run: DagRun, msg: str):
+        breakpoint()
+
+    @hookimpl
     def on_dag_run_success(self, dag_run: DagRun, msg: str):
         """
         Called when a DAG run completes successfully.
-        
+
         Creates the WorkChainNode with inputs, then creates CalcJobNodes for all
         completed task groups, and finally finalizes the WorkChainNode.
         """
@@ -418,24 +426,24 @@ class AiiDATaskGroupIntegrationListener:
         try:
             logger.info(f"Creating WorkChainNode for DAG {dag_run.dag_id}")
             wc_node = _create_workchain_node_with_inputs(dag_run)
-            
+
             logger.info(f"Finalizing WorkChainNode for DAG {dag_run.dag_id}")
             _finalize_workchain_node(wc_node, dag_run)
-            
+
             logger.info(
                 f"Successfully integrated DAG {dag_run.dag_id} into AiiDA provenance"
             )
         except Exception as e:
             logger.error(
                 f"Failed to integrate DAG {dag_run.dag_id} into AiiDA: {e}",
-                exc_info=True
+                exc_info=True,
             )
 
     @hookimpl
     def on_dag_run_failed(self, dag_run: DagRun, msg: str):
         """
         Called when a DAG run fails.
-        
+
         Creates a failed WorkChainNode for provenance tracking.
         """
         logger.info(f"[HOOK] on_dag_run_failed: {dag_run.dag_id}/{dag_run.run_id}")
@@ -448,11 +456,12 @@ class AiiDATaskGroupIntegrationListener:
             wc_node = _create_workchain_node_with_inputs(dag_run)
             wc_node.set_process_state("excepted")
             wc_node.set_exit_status(1)
-            logger.info(f"Created failed WorkChainNode {wc_node.pk} for DAG {dag_run.dag_id}")
+            logger.info(
+                f"Created failed WorkChainNode {wc_node.pk} for DAG {dag_run.dag_id}"
+            )
         except Exception as e:
             logger.error(
-                f"Failed to create WorkChainNode for failed DAG: {e}",
-                exc_info=True
+                f"Failed to create WorkChainNode for failed DAG: {e}", exc_info=True
             )
 
 

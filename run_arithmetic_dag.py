@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+from airflow.api.client.local_client import Client
 
 # Set AIRFLOW__CORE__DAGS_FOLDER to include example_dags
 dag_folder = str(
@@ -31,12 +32,12 @@ dag = dagbag.get_dag("arithmetic_add_multiply")
 
 # Use test mode with execution_date to avoid serialization issues
 
-dag.test(
-    run_conf=conf,
-    # execution_date=datetime.now(),
-    use_executor=False,  # Run tasks sequentially in the same process
-)
+# dag.test(
+#     run_conf=conf,
+#     # execution_date=datetime.now(),
+#     use_executor=False,  # Run tasks sequentially in the same process
+# )
 
 # Trigger DAG using API client (requires scheduler to be running)
-# client: Client = Client()
-# client.trigger_dag(dag_id="arithmetic_add_multiply", conf=conf)
+client: Client = Client()
+client.trigger_dag(dag_id="arithmetic_add_multiply", conf=conf)
