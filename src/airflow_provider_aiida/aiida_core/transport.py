@@ -5,7 +5,6 @@ from typing import Optional, Dict, Any
 from airflow.hooks.base import BaseHook
 from aiida.engine.transports import TransportQueue
 
-
 class DummyComputer:
     """Dummy Computer object that mimics AiiDA Computer for duck typing."""
 
@@ -100,23 +99,59 @@ def get_authinfo_from_airflow_connection(conn_id: str):
 # Module-level singletons
 # ---------------------------
 
-_TRANSPORT_QUEUE: Optional[TransportQueue] = None
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+_TRANSPORT_QUEUE_CACHE: Dict[int, TransportQueue] = {}
 _AUTHINFO_CACHE: Dict[str, Any] = {}
+_CACHE_STATS = {
+    'hits': 0,
+    'misses': 0,
+    'loops_created': 0,
+}
 
 
 def get_transport_queue() -> TransportQueue:
-    """Return a TransportQueue instance using the current event loop.
+    """Return a cached TransportQueue instance for the current event loop.
 
-    Note: Always creates a new TransportQueue to ensure it uses the current
-    event loop. This is necessary because Airflow triggers run in different
-    async contexts with different event loops.
+    Caches TransportQueue per event loop to enable connection pooling.
+    Each triggerer process has its own event loop, so we use the loop's
+    id() as the cache key.
+
+    This significantly improves performance by reusing transport connections
+    instead of creating new ones for each task.
     """
     import asyncio
+    global _TRANSPORT_QUEUE_CACHE, _CACHE_STATS
+
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = asyncio.get_event_loop()
-    return TransportQueue(loop=loop)
+
+    loop_id = id(loop)
+
+    # Return cached queue if it exists for this event loop
+    if loop_id in _TRANSPORT_QUEUE_CACHE:
+        _CACHE_STATS['hits'] += 1
+        _LOGGER.debug(
+            f"TransportQueue cache HIT for loop {loop_id} "
+            f"(hits: {_CACHE_STATS['hits']}, misses: {_CACHE_STATS['misses']})"
+        )
+        return _TRANSPORT_QUEUE_CACHE[loop_id]
+
+    # Create new queue for this event loop and cache it
+    _CACHE_STATS['misses'] += 1
+    _CACHE_STATS['loops_created'] += 1
+    _LOGGER.debug(
+        f"TransportQueue cache MISS - creating new queue for loop {loop_id} "
+        f"(total loops: {_CACHE_STATS['loops_created']}, hits: {_CACHE_STATS['hits']}, misses: {_CACHE_STATS['misses']})"
+    )
+
+    transport_queue = TransportQueue(loop=loop)
+    _TRANSPORT_QUEUE_CACHE[loop_id] = transport_queue
+
+    return transport_queue
 
 
 def get_authinfo_cached(conn_id: str):
