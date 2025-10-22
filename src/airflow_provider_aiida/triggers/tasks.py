@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator
 
 from airflow.triggers.base import BaseTrigger, TriggerEvent
 
-from airflow_provider_aiida.aiida_core.engine.calcjob.tasks import (
+from airflow_provider_aiida.aiida_core.engine.calcjobs.tasks import (
     task_upload_job,
     task_submit_job,
     task_update_job,
@@ -22,12 +22,12 @@ from airflow_provider_aiida.aiida_core.engine.calcjob.tasks import (
 )
 from aiida.engine.utils import InterruptableFuture
 from aiida.orm import load_node
-from airflow_provider_aiida.aiida_core.transport import get_transport_queue
+from airflow_provider_aiida.aiida_core.engine.runner import Runner
 
 logger = logging.getLogger(__name__)
 
 
-class AiiDAUploadTrigger(BaseTrigger):
+class CalcJobUploadTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_upload_job function."""
 
     def __init__(self, node_pk: int):
@@ -41,7 +41,7 @@ class AiiDAUploadTrigger(BaseTrigger):
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize the trigger for persistence."""
         return (
-            "airflow_provider_aiida.triggers.async_aiida_calcjob.AiiDAUploadTrigger",
+            "airflow_provider_aiida.triggers.tasks.CalcJobUploadTrigger",
             {"node_pk": self.node_pk},
         )
 
@@ -75,7 +75,7 @@ class AiiDAUploadTrigger(BaseTrigger):
                 code_info.join_files = ci_data.get('join_files', False)
                 calc_info.codes_info.append(code_info)
 
-            transport_queue = get_transport_queue()
+            transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
             skip_submit = await task_upload_job(node, transport_queue, cancellable, calc_info)
@@ -91,7 +91,7 @@ class AiiDAUploadTrigger(BaseTrigger):
             yield TriggerEvent({"status": "error", "message": str(e), "traceback": tb})
 
 
-class AiiDASubmitTrigger(BaseTrigger):
+class CalcJobSubmitTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_submit_job function."""
 
     def __init__(self, node_pk: int):
@@ -105,7 +105,7 @@ class AiiDASubmitTrigger(BaseTrigger):
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize the trigger for persistence."""
         return (
-            "airflow_provider_aiida.triggers.async_aiida_calcjob.AiiDASubmitTrigger",
+            "airflow_provider_aiida.triggers.tasks.CalcJobSubmitTrigger",
             {"node_pk": self.node_pk},
         )
 
@@ -117,7 +117,7 @@ class AiiDASubmitTrigger(BaseTrigger):
             load_profile()
 
             node = load_node(self.node_pk)
-            transport_queue = get_transport_queue()
+            transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
             job_id = await task_submit_job(node, transport_queue, cancellable)
@@ -133,29 +133,26 @@ class AiiDASubmitTrigger(BaseTrigger):
             yield TriggerEvent({"status": "error", "message": str(e), "traceback": tb})
 
 
-class AiiDAUpdateTrigger(BaseTrigger):
+class CalcJobUpdateTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_update_job function.
 
     This trigger polls the job status until it's complete.
     """
 
-    def __init__(self, node_pk: int, sleep_interval: int = 5):
+    def __init__(self, node_pk: int):
         """Initialize the update trigger.
 
         :param node_pk: Primary key of the CalcJobNode to update
-        :param sleep_interval: Seconds to sleep between update checks
         """
         super().__init__()
         self.node_pk = node_pk
-        self.sleep_interval = sleep_interval
 
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize the trigger for persistence."""
         return (
-            "airflow_provider_aiida.triggers.async_aiida_calcjob.AiiDAUpdateTrigger",
+            "airflow_provider_aiida.triggers.tasks.CalcJobUpdateTrigger",
             {
                 "node_pk": self.node_pk,
-                "sleep_interval": self.sleep_interval,
             },
         )
 
@@ -167,7 +164,7 @@ class AiiDAUpdateTrigger(BaseTrigger):
             load_profile()
 
             node = load_node(self.node_pk)
-            transport_queue = get_transport_queue()
+            transport_queue = Runner.get_instance().transport_queue
             from aiida.engine.processes.calcjobs.manager import JobManager
             job_manager = JobManager(transport_queue)
             cancellable = InterruptableFuture()
@@ -175,9 +172,6 @@ class AiiDAUpdateTrigger(BaseTrigger):
             job_done = False
             while not job_done:
                 job_done = await task_update_job(node, job_manager, cancellable)
-
-                if not job_done:
-                    await asyncio.sleep(self.sleep_interval)
 
             yield TriggerEvent({
                 "status": "success",
@@ -190,7 +184,7 @@ class AiiDAUpdateTrigger(BaseTrigger):
             yield TriggerEvent({"status": "error", "message": str(e), "traceback": tb})
 
 
-class AiiDAMonitorTrigger(BaseTrigger):
+class CalcJobMonitorTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_monitor_job function."""
 
     def __init__(self, node_pk: int, monitors_pk: int | None = None):
@@ -206,7 +200,7 @@ class AiiDAMonitorTrigger(BaseTrigger):
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize the trigger for persistence."""
         return (
-            "airflow_provider_aiida.triggers.async_aiida_calcjob.AiiDAMonitorTrigger",
+            "airflow_provider_aiida.triggers.tasks.CalcJobMonitorTrigger",
             {
                 "node_pk": self.node_pk,
                 "monitors_pk": self.monitors_pk,
@@ -221,7 +215,7 @@ class AiiDAMonitorTrigger(BaseTrigger):
             load_profile()
 
             node = load_node(self.node_pk)
-            transport_queue = get_transport_queue()
+            transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
             # Load monitors if provided
@@ -250,26 +244,23 @@ class AiiDAMonitorTrigger(BaseTrigger):
             yield TriggerEvent({"status": "error", "message": str(e), "traceback": tb})
 
 
-class AiiDARetrieveTrigger(BaseTrigger):
+class CalcJobRetrieveTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_retrieve_job function."""
 
-    def __init__(self, node_pk: int, retrieved_temporary_folder: str):
+    def __init__(self, node_pk: int):
         """Initialize the retrieve trigger.
 
         :param node_pk: Primary key of the CalcJobNode to retrieve
-        :param retrieved_temporary_folder: Path to temporary folder for retrieved files
         """
         super().__init__()
         self.node_pk = node_pk
-        self.retrieved_temporary_folder = retrieved_temporary_folder
 
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize the trigger for persistence."""
         return (
-            "airflow_provider_aiida.triggers.async_aiida_calcjob.AiiDARetrieveTrigger",
+            "airflow_provider_aiida.triggers.tasks.CalcJobRetrieveTrigger",
             {
                 "node_pk": self.node_pk,
-                "retrieved_temporary_folder": self.retrieved_temporary_folder,
             },
         )
 
@@ -281,15 +272,13 @@ class AiiDARetrieveTrigger(BaseTrigger):
             load_profile()
 
             node = load_node(self.node_pk)
-            transport_queue = get_transport_queue()
+            transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
-            # Create the retrieved_temporary_folder if it doesn't exist
-            from pathlib import Path
-            Path(self.retrieved_temporary_folder).mkdir(parents=True, exist_ok=True)
-
+            import tempfile
+            temp_folder = tempfile.mkdtemp()
             retrieved = await task_retrieve_job(
-                node, transport_queue, self.retrieved_temporary_folder, cancellable
+                node, transport_queue, temp_folder, cancellable
             )
 
             yield TriggerEvent({
@@ -303,7 +292,7 @@ class AiiDARetrieveTrigger(BaseTrigger):
             yield TriggerEvent({"status": "error", "message": str(e), "traceback": tb})
 
 
-class AiiDAStashTrigger(BaseTrigger):
+class CalcJobStashTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_stash_job function."""
 
     def __init__(self, node_pk: int):
@@ -317,7 +306,7 @@ class AiiDAStashTrigger(BaseTrigger):
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize the trigger for persistence."""
         return (
-            "airflow_provider_aiida.triggers.async_aiida_calcjob.AiiDAStashTrigger",
+            "airflow_provider_aiida.triggers.tasks.CalcJobStashTrigger",
             {"node_pk": self.node_pk},
         )
 
@@ -329,7 +318,7 @@ class AiiDAStashTrigger(BaseTrigger):
             load_profile()
 
             node = load_node(self.node_pk)
-            transport_queue = get_transport_queue()
+            transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
             await task_stash_job(node, transport_queue, cancellable)
@@ -342,7 +331,7 @@ class AiiDAStashTrigger(BaseTrigger):
             yield TriggerEvent({"status": "error", "message": str(e), "traceback": tb})
 
 
-class AiiDAUnstashTrigger(BaseTrigger):
+class CalcJobUnstashTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_unstash_job function."""
 
     def __init__(self, node_pk: int):
@@ -356,7 +345,7 @@ class AiiDAUnstashTrigger(BaseTrigger):
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize the trigger for persistence."""
         return (
-            "airflow_provider_aiida.triggers.async_aiida_calcjob.AiiDAUnstashTrigger",
+            "airflow_provider_aiida.triggers.tasks.CalcJobUnstashTrigger",
             {"node_pk": self.node_pk},
         )
 
@@ -368,7 +357,7 @@ class AiiDAUnstashTrigger(BaseTrigger):
             load_profile()
 
             node = load_node(self.node_pk)
-            transport_queue = get_transport_queue()
+            transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
             await task_unstash_job(node, transport_queue, cancellable)
@@ -381,7 +370,7 @@ class AiiDAUnstashTrigger(BaseTrigger):
             yield TriggerEvent({"status": "error", "message": str(e), "traceback": tb})
 
 
-class AiiDAKillTrigger(BaseTrigger):
+class CalcJobKillTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_kill_job function."""
 
     def __init__(self, node_pk: int):
@@ -395,7 +384,7 @@ class AiiDAKillTrigger(BaseTrigger):
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize the trigger for persistence."""
         return (
-            "airflow_provider_aiida.triggers.async_aiida_calcjob.AiiDAKillTrigger",
+            "airflow_provider_aiida.triggers.tasks.CalcJobKillTrigger",
             {"node_pk": self.node_pk},
         )
 
@@ -407,7 +396,7 @@ class AiiDAKillTrigger(BaseTrigger):
             load_profile()
 
             node = load_node(self.node_pk)
-            transport_queue = get_transport_queue()
+            transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
             result = await task_kill_job(node, transport_queue, cancellable)

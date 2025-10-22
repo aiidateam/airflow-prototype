@@ -9,20 +9,20 @@ from typing import Any
 from airflow.models import BaseOperator
 from airflow.utils.context import Context
 
-from airflow_provider_aiida.triggers.async_aiida_calcjob import (
-    AiiDAUploadTrigger,
-    AiiDASubmitTrigger,
-    AiiDAUpdateTrigger,
-    AiiDAMonitorTrigger,
-    AiiDARetrieveTrigger,
-    AiiDAStashTrigger,
-    AiiDAUnstashTrigger,
-    AiiDAKillTrigger,
+from airflow_provider_aiida.triggers.tasks import (
+    CalcJobUploadTrigger,
+    CalcJobSubmitTrigger,
+    CalcJobUpdateTrigger,
+    CalcJobMonitorTrigger,
+    CalcJobRetrieveTrigger,
+    CalcJobStashTrigger,
+    CalcJobUnstashTrigger,
+    CalcJobKillTrigger,
 )
 
 
-class AiiDAAsyncUploadOperator(BaseOperator):
-    """Operator that defers to AiiDAUploadTrigger to upload CalcJob files.
+class CalcJobUploadOperator(BaseOperator):
+    """Operator that defers to CalcJobUploadTrigger to upload CalcJob files.
 
     This operator executes the AiiDA task_upload_job function asynchronously.
     """
@@ -40,7 +40,7 @@ class AiiDAAsyncUploadOperator(BaseOperator):
     def execute(self, context: Context):
         """Defer to the upload trigger."""
         self.defer(
-            trigger=AiiDAUploadTrigger(node_pk=self.node_pk),
+            trigger=CalcJobUploadTrigger(node_pk=self.node_pk),
             method_name="execute_complete",
         )
 
@@ -57,8 +57,8 @@ class AiiDAAsyncUploadOperator(BaseOperator):
         return {"skip_submit": skip_submit}
 
 
-class AiiDAAsyncSubmitOperator(BaseOperator):
-    """Operator that defers to AiiDASubmitTrigger to submit a CalcJob.
+class CalcJobSubmitOperator(BaseOperator):
+    """Operator that defers to CalcJobSubmitTrigger to submit a CalcJob.
 
     This operator executes the AiiDA task_submit_job function asynchronously.
     """
@@ -76,7 +76,7 @@ class AiiDAAsyncSubmitOperator(BaseOperator):
     def execute(self, context: Context):
         """Defer to the submit trigger."""
         self.defer(
-            trigger=AiiDASubmitTrigger(node_pk=self.node_pk),
+            trigger=CalcJobSubmitTrigger(node_pk=self.node_pk),
             method_name="execute_complete",
         )
 
@@ -93,8 +93,8 @@ class AiiDAAsyncSubmitOperator(BaseOperator):
         return {"job_id": job_id}
 
 
-class AiiDAAsyncUpdateOperator(BaseOperator):
-    """Operator that defers to AiiDAUpdateTrigger to monitor CalcJob status.
+class CalcJobUpdateOperator(BaseOperator):
+    """Operator that defers to CalcJobUpdateTrigger to monitor CalcJob status.
 
     This operator executes the AiiDA task_update_job function asynchronously,
     polling until the job is complete.
@@ -115,7 +115,7 @@ class AiiDAAsyncUpdateOperator(BaseOperator):
     def execute(self, context: Context):
         """Defer to the update trigger."""
         self.defer(
-            trigger=AiiDAUpdateTrigger(
+            trigger=CalcJobUpdateTrigger(
                 node_pk=self.node_pk,
                 sleep_interval=self.sleep_interval,
             ),
@@ -135,8 +135,8 @@ class AiiDAAsyncUpdateOperator(BaseOperator):
         return {"job_done": job_done}
 
 
-class AiiDAAsyncMonitorOperator(BaseOperator):
-    """Operator that defers to AiiDAMonitorTrigger to monitor CalcJob.
+class CalcJobMonitorOperator(BaseOperator):
+    """Operator that defers to CalcJobMonitorTrigger to monitor CalcJob.
 
     This operator executes the AiiDA task_monitor_job function asynchronously.
     """
@@ -156,7 +156,7 @@ class AiiDAAsyncMonitorOperator(BaseOperator):
     def execute(self, context: Context):
         """Defer to the monitor trigger."""
         self.defer(
-            trigger=AiiDAMonitorTrigger(
+            trigger=CalcJobMonitorTrigger(
                 node_pk=self.node_pk,
                 monitors_pk=self.monitors_pk,
             ),
@@ -181,30 +181,27 @@ class AiiDAAsyncMonitorOperator(BaseOperator):
         }
 
 
-class AiiDAAsyncRetrieveOperator(BaseOperator):
-    """Operator that defers to AiiDARetrieveTrigger to retrieve CalcJob files.
+class CalcJobRetrieveOperator(BaseOperator):
+    """Operator that defers to CalcJobRetrieveTrigger to retrieve CalcJob files.
 
     This operator executes the AiiDA task_retrieve_job function asynchronously.
     """
 
-    template_fields = ["node_pk", "retrieved_temporary_folder"]
+    template_fields = ["node_pk"]
 
-    def __init__(self, node_pk: int, retrieved_temporary_folder: str, **kwargs):
+    def __init__(self, node_pk: int, **kwargs):
         """Initialize the retrieve operator.
 
         :param node_pk: Primary key of the CalcJobNode to retrieve
-        :param retrieved_temporary_folder: Path to temporary folder for retrieved files
         """
         super().__init__(**kwargs)
         self.node_pk = node_pk
-        self.retrieved_temporary_folder = retrieved_temporary_folder
 
     def execute(self, context: Context):
         """Defer to the retrieve trigger."""
         self.defer(
-            trigger=AiiDARetrieveTrigger(
+            trigger=CalcJobRetrieveTrigger(
                 node_pk=self.node_pk,
-                retrieved_temporary_folder=self.retrieved_temporary_folder,
             ),
             method_name="execute_complete",
         )
@@ -222,8 +219,8 @@ class AiiDAAsyncRetrieveOperator(BaseOperator):
         return {"retrieved": retrieved}
 
 
-class AiiDAAsyncStashOperator(BaseOperator):
-    """Operator that defers to AiiDAStashTrigger to stash CalcJob files.
+class CalcJobStashOperator(BaseOperator):
+    """Operator that defers to CalcJobStashTrigger to stash CalcJob files.
 
     This operator executes the AiiDA task_stash_job function asynchronously.
     """
@@ -241,7 +238,7 @@ class AiiDAAsyncStashOperator(BaseOperator):
     def execute(self, context: Context):
         """Defer to the stash trigger."""
         self.defer(
-            trigger=AiiDAStashTrigger(node_pk=self.node_pk),
+            trigger=CalcJobStashTrigger(node_pk=self.node_pk),
             method_name="execute_complete",
         )
 
@@ -256,8 +253,8 @@ class AiiDAAsyncStashOperator(BaseOperator):
         self.log.info("Stash completed successfully")
 
 
-class AiiDAAsyncUnstashOperator(BaseOperator):
-    """Operator that defers to AiiDAUnstashTrigger to unstash CalcJob files.
+class CalcJobUnstashOperator(BaseOperator):
+    """Operator that defers to CalcJobUnstashTrigger to unstash CalcJob files.
 
     This operator executes the AiiDA task_unstash_job function asynchronously.
     """
@@ -275,7 +272,7 @@ class AiiDAAsyncUnstashOperator(BaseOperator):
     def execute(self, context: Context):
         """Defer to the unstash trigger."""
         self.defer(
-            trigger=AiiDAUnstashTrigger(node_pk=self.node_pk),
+            trigger=CalcJobUnstashTrigger(node_pk=self.node_pk),
             method_name="execute_complete",
         )
 
@@ -290,8 +287,8 @@ class AiiDAAsyncUnstashOperator(BaseOperator):
         self.log.info("Unstash completed successfully")
 
 
-class AiiDAAsyncKillOperator(BaseOperator):
-    """Operator that defers to AiiDAKillTrigger to kill a CalcJob.
+class CalcJobKillOperator(BaseOperator):
+    """Operator that defers to CalcJobKillTrigger to kill a CalcJob.
 
     This operator executes the AiiDA task_kill_job function asynchronously.
     """
@@ -309,7 +306,7 @@ class AiiDAAsyncKillOperator(BaseOperator):
     def execute(self, context: Context):
         """Defer to the kill trigger."""
         self.defer(
-            trigger=AiiDAKillTrigger(node_pk=self.node_pk),
+            trigger=CalcJobKillTrigger(node_pk=self.node_pk),
             method_name="execute_complete",
         )
 
