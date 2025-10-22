@@ -47,6 +47,7 @@ class CalcJobTaskGroup(TaskGroup, ABC):
     def __init__(
         self,
         group_id: str,
+        process,
         **inputs
     ):
         """Initialize the AiiDA CalcJob TaskGroup.
@@ -54,13 +55,13 @@ class CalcJobTaskGroup(TaskGroup, ABC):
         :param group_id: Unique identifier for this task group
         """
         super().__init__(group_id=group_id)
-        self.inputs = inputs 
+        self.process = process
 
         self._build_tasks()
 
-    def _create_calcjob(self):
+    def _create_calcjob(self, **context):
         breakpoint()
-        calcjob = CalcJob(inputs=self.inputs)
+        calcjob = self.process.__init__(inputs=context['params'])
 
         #if self.inputs.metadata.dry_run:
         #    await self._perform_dry_run()
@@ -107,23 +108,6 @@ class CalcJobTaskGroup(TaskGroup, ABC):
         """
         CalcJob.define(spec)
 
-    @abstractmethod
-    def prepare_for_submission(self, folder) -> 'CalcInfo':
-        """Prepare the calculation for submission.
-
-        This method should be implemented by subclasses to:
-        1. Write input files to the folder
-        2. Create and return a CalcInfo object with job submission details
-
-        Access inputs via self.resolved_inputs.x, self.resolved_inputs.y, etc.
-
-        Args:
-            folder: A SandboxFolder where input files should be written
-
-        Returns:
-            CalcInfo: Object containing submission details (codes to execute, files to copy, etc.)
-        """
-        pass
 
     def _build_tasks(self):
         """Build all tasks within this task group following AiiDA's CalcJob workflow."""
@@ -132,7 +116,6 @@ class CalcJobTaskGroup(TaskGroup, ABC):
         create_calcjob_task = PythonOperator(
             task_id='create_calcjob',
             python_callable=self._create_calcjob,
-            op_kwargs={'inputs': self.inputs},
             task_group=self,
         )
         # Get the node_pk to use downstream
@@ -141,7 +124,6 @@ class CalcJobTaskGroup(TaskGroup, ABC):
         prepare_calcjob_task = PythonOperator(
             task_id='run',
             python_callable=self._prepare_calcjob_task,
-            op_kwargs={'inputs': self.inputs},
             task_group=self,
         )
         

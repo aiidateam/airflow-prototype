@@ -12,12 +12,13 @@ from aiida import orm
 from aiida.common.datastructures import CalcInfo, CodeInfo
 from aiida.common.folders import Folder
 from airflow_provider_aiida.taskgroups.calcjob import CalcJobTaskGroup
+from airflow_provider_aiida.aiida_core.engine.calcjobs.calcjob import CalcJob
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from airflow_provider_aiida.aiida_core.engine.processes.process_spec import CalcJobProcessSpec
 
-class ArithmeticAddCalculation(CalcJobTaskGroup):
+class ArithmeticAddCalculation(CalcJob):
     """`CalcJob` implementation to add two numbers using bash for testing and demonstration purposes."""
 
     @classmethod
@@ -87,11 +88,14 @@ with DAG(
         "sleep": Param(0, type="integer", description="Sleep"),
     }
 ) as dag:
-    add_job = ArithmeticAddCalculation(
+    print(ArithmeticAddCalculation.__module__)
+    breakpoint()
+    add_job = CalcJobTaskGroup(
         group_id="ArithmeticAddCalculation",
-        x="{{ params.x }}",
-        y="{{ params.y }}",
-        sleep="{{ params.y }}",
+        process=ArithmeticAddCalculation,
+        inputs = dict(x= "{{ params.x }}",
+                      y="{{ params.y }}",
+                      sleep="{{ params.y }}")
     )
 
     add_job
@@ -100,8 +104,6 @@ with DAG(
 if __name__ == "__main__":
     from aiida import load_profile
     load_profile()
-    """Execute the DAG for testing/debugging."""
-    from datetime import datetime
 
     print("=" * 60)
     print("Testing arithmetic_aiida_native_single DAG")
