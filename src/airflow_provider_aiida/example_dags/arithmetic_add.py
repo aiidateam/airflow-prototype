@@ -27,7 +27,6 @@ with DAG(
         "metadata": {"options": {"sleep": 0}},
     }
 ) as dag:
-    from aiida.calculations.arithmetic.add import ArithmeticAddCalculation
     print(ArithmeticAddCalculation.__module__)
     add_job = CalcJobTaskGroup(
         group_id="ArithmeticAddCalculation",

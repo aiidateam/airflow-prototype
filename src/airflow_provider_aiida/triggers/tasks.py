@@ -46,6 +46,13 @@ def load_process_from_same_state(node_pk: int):
 
     return process
 
+def save_checkpoint(process):
+    try:
+        process.update_outputs()
+    except ValueError:
+        raise
+    process._save_checkpoint()
+
 class CalcJobUploadTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_upload_job function."""
 
@@ -74,10 +81,7 @@ class CalcJobUploadTrigger(BaseTrigger):
             cancellable = InterruptableFuture()
 
             skip_submit = await task_upload_job(process, transport_queue, cancellable)
-            #NOTE: I think this is a bug in aiida, in subsequent step this gets stored
-            for value in process.outputs.values():
-                value.store()
-            process._save_checkpoint()
+            save_checkpoint(process)
 
             yield TriggerEvent({
                 "status": "success",
@@ -276,7 +280,7 @@ class CalcJobRetrieveTrigger(BaseTrigger):
             retrieved = await task_retrieve_job(
                 process, transport_queue, temp_folder, cancellable
             )
-            process._save_checkpoint()
+            save_checkpoint(process)
 
             yield TriggerEvent({
                 "status": "success",

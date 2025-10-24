@@ -31,7 +31,6 @@ from airflow_provider_aiida.operators.tasks import (
     CalcJobUnstashOperator,
 )
 
-
 class CalcJobTaskGroup(TaskGroup, ABC):
     """
     Abstract TaskGroup for async AiiDA CalcJob workflows using deferrable operators.
@@ -155,22 +154,11 @@ class CalcJobTaskGroup(TaskGroup, ABC):
         temp_folder = retrieve_op_output['temp_folder']
         calcjob = self.load_process_to_state(pk, plumpy.ProcessState.RUNNING) 
         result = calcjob.parse(temp_folder)
-        # NOTE: not sure wher this happens in aiida
+        # NOTE: not sure where this happens in aiida
         for value in calcjob.outputs.values():
             value.store()
-        calcjob._save_checkpoint()
+        self.save_checkpoint(calcjob)
         return result
-
-    @classmethod
-    def define(cls, spec: CalcJobProcessSpec) -> None:
-        """Define the input/output specification using AiiDA's CalcJobProcessSpec.
-
-        Subclasses should override this to specify their inputs.
-
-        :param spec: CalcJobProcessSpec to define inputs/outputs on
-        """
-        CalcJob.define(spec)
-
 
     def _build_tasks(self):
         """Build all tasks within this task group following AiiDA's CalcJob workflow."""
@@ -343,3 +331,10 @@ class CalcJobTaskGroup(TaskGroup, ABC):
 
         return process
 
+    @staticmethod
+    def save_checkpoint(process):
+        try:
+            process.update_outputs()
+        except ValueError:
+            raise
+        process._save_checkpoint()
