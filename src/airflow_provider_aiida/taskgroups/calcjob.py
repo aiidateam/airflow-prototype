@@ -126,6 +126,7 @@ class CalcJobTaskGroup(TaskGroup, ABC):
         self.load_process_to_state(pk, plumpy.ProcessState.WAITING) 
 
     def _finish_calcjob(self, pk: int):
+        # TODO provide exit_code and success
         self.load_process_to_state(pk, plumpy.ProcessState.FINISHED) 
 
     def _perform_dry_run(self, pk: int):

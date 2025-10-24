@@ -75,8 +75,8 @@ class CalcJobUploadTrigger(BaseTrigger):
 
             skip_submit = await task_upload_job(process, transport_queue, cancellable)
             #NOTE: I think this is a bug in aiida, in subsequent step this gets stored
-            if 'remote_folder' in process.outputs:
-                process.outputs['remote_folder'].store()
+            for value in process.outputs.values():
+                value.store()
             process._save_checkpoint()
 
             yield TriggerEvent({
