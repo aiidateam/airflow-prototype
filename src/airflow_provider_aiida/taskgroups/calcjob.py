@@ -47,6 +47,7 @@ class CalcJobTaskGroup(TaskGroup, ABC):
 
     Subclasses must implement define() class method and created() and parse() methods.
     """
+    # TODO on_terminated
 
     def __init__(
         self,
@@ -78,7 +79,7 @@ class CalcJobTaskGroup(TaskGroup, ABC):
         process = self.process_class(inputs=inputs)
         # For creating pesistence checkpoints and other database related actions
         process.on_entering(process._state)
-        process.on_entered(None)
+        process.on_entered(None) # this makes a checkpoint
 
         # NOTE: I don't know aiida internals good enough if this is always given but is assumed in the rest of the code
         assert process.pid == process.node.pk
@@ -94,11 +95,7 @@ class CalcJobTaskGroup(TaskGroup, ABC):
             `Wait` command if the calcjob is to be uploaded
 
         """
-        process = self.load_process(pk) 
-        old_state = process._state
-        process._state = plumpy.process_states.Running(process=process, run_fn=process.run)
-        process.on_entering(process._state)
-        process.on_entered(old_state)
+        process = self.load_process_to_state(pk, plumpy.ProcessState.RUNNING) 
 
         if process.inputs.metadata.dry_run:
             return self.get_absolute_task_id("perform_dry_run")
@@ -126,20 +123,10 @@ class CalcJobTaskGroup(TaskGroup, ABC):
             `Wait` command if the calcjob is to be uploaded
 
         """
-        process = self.load_process(pk) 
-        # TODO check done_callback
-        old_state = process._state
-        process._state = plumpy.process_states.Waiting(process=process, done_callback=None)
-        process.on_entering(process._state)
-        process.on_entered(old_state)
+        self.load_process_to_state(pk, plumpy.ProcessState.WAITING) 
 
     def _finish_calcjob(self, pk: int):
-        process = self.load_process(pk) 
-        # TODO result is probably
-        old_state = process._state
-        process._state = plumpy.process_states.Finished(process=process, result=0, successful=True)
-        process.on_entering(process._state)
-        process.on_entered(old_state)
+        self.load_process_to_state(pk, plumpy.ProcessState.FINISHED) 
 
     def _perform_dry_run(self, pk: int):
         calcjob = self.load_process(pk)
@@ -165,8 +152,12 @@ class CalcJobTaskGroup(TaskGroup, ABC):
 
     def _parse(self, pk: int, retrieve_op_output: dict, **context):
         temp_folder = retrieve_op_output['temp_folder']
-        calcjob = self.load_process(pk) 
+        calcjob = self.load_process_to_state(pk, plumpy.ProcessState.RUNNING) 
         result = calcjob.parse(temp_folder)
+        # NOTE: not sure wher this happens in aiida
+        for value in calcjob.outputs.values():
+            value.store()
+        calcjob._save_checkpoint()
         return result
 
     @classmethod
@@ -319,7 +310,7 @@ class CalcJobTaskGroup(TaskGroup, ABC):
         return ".".join([self.group_id, task_id])
     
     @staticmethod
-    def load_process(node_pk: int) -> CalcJob:
+    def load_process_to_state(node_pk: int, state: plumpy.ProcessState) -> CalcJob:
         """Loads the CalcJob from the checkpoint in the CalcJobNode"""
         from aiida import load_profile
         from aiida.orm import load_node
@@ -331,5 +322,23 @@ class CalcJobTaskGroup(TaskGroup, ABC):
         persister = persistence.AiiDAPersister()
         saved_state = persister.load_checkpoint(node_pk)
         process = saved_state.unbundle(LoadSaveContext())
+
+        old_state = process._state
+        if state == plumpy.ProcessState.CREATED:
+            raise NotImplemented()
+            process.on_entering(process._state)
+            process.on_entered(None)
+        elif state == plumpy.ProcessState.RUNNING:
+            process._state = plumpy.process_states.Running(process=process, run_fn=process.run)
+        elif state == plumpy.ProcessState.WAITING:
+            process._state = plumpy.process_states.Waiting(process=process, done_callback=None)
+        elif state == plumpy.ProcessState.FINISHED:
+            process._state = plumpy.process_states.Finished(process=process, result=0, successful=True)
+        else:
+            raise ValueError()
+
+        process.on_entering(process._state)
+        process.on_entered(old_state)
+
         return process
-        #create_op >> run_op >> [perform_dry_run_op, perform_import_op, cached_calcjob_op] >> wait_op >> upload_op >> submit_op >> update_op >> retrieve_op >> finish_op
+

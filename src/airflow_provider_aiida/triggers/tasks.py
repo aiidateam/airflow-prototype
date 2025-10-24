@@ -31,7 +31,8 @@ from airflow_provider_aiida.aiida_core.engine.runner import Runner
 logger = logging.getLogger(__name__)
 
 
-def load_process(node_pk: int):
+def load_process_from_same_state(node_pk: int):
+    """reenters same state"""
     from aiida import load_profile
     load_profile()
     from aiida.engine import persistence
@@ -39,6 +40,10 @@ def load_process(node_pk: int):
     persister = persistence.AiiDAPersister()
     saved_state = persister.load_checkpoint(node_pk)
     process = saved_state.unbundle(LoadSaveContext())
+
+    process.on_entering(process._state)
+    process.on_entered(process._state)
+
     return process
 
 class CalcJobUploadTrigger(BaseTrigger):
@@ -63,12 +68,16 @@ class CalcJobUploadTrigger(BaseTrigger):
         """Execute the upload task."""
         try:
             # Load AiiDA profile (triggers run in separate process)
-            process = load_process(self.node_pk)
+            process = load_process_from_same_state(self.node_pk)
 
             transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
             skip_submit = await task_upload_job(process, transport_queue, cancellable)
+            #NOTE: I think this is a bug in aiida, in subsequent step this gets stored
+            if 'remote_folder' in process.outputs:
+                process.outputs['remote_folder'].store()
+            process._save_checkpoint()
 
             yield TriggerEvent({
                 "status": "success",
@@ -258,7 +267,7 @@ class CalcJobRetrieveTrigger(BaseTrigger):
         """Execute the retrieve task."""
         try:
             # Load AiiDA profile (triggers run in separate process)
-            process = load_process(self.node_pk)
+            process = load_process_from_same_state(self.node_pk)
             transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
@@ -267,6 +276,7 @@ class CalcJobRetrieveTrigger(BaseTrigger):
             retrieved = await task_retrieve_job(
                 process, transport_queue, temp_folder, cancellable
             )
+            process._save_checkpoint()
 
             yield TriggerEvent({
                 "status": "success",
