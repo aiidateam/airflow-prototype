@@ -55,12 +55,21 @@ class CalcJobTaskGroup(TaskGroup, ABC):
         :param group_id: Unique identifier for this task group
         """
         super().__init__(group_id=group_id)
+        breakpoint()
+        calcjob_class = self._import_class(self.calcjob_class_string)
+
         self.process = process
 
         self._build_tasks()
 
+  @staticmethod
+  def _import_class(class_string: str):
+      module_path, class_name = class_string.rsplit('.', 1)
+      import importlib
+      module = importlib.import_module(module_path)
+      return getattr(module, class_name)
+
     def _create_calcjob(self, **context):
-        breakpoint()
         calcjob = self.process.__init__(inputs=context['params'])
 
         #if self.inputs.metadata.dry_run:
