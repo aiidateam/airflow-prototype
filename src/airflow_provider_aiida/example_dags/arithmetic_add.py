@@ -12,12 +12,14 @@ from aiida import orm
 from aiida.common.datastructures import CalcInfo, CodeInfo
 from aiida.common.folders import Folder
 from airflow_provider_aiida.taskgroups.calcjob import CalcJobTaskGroup
-from airflow_provider_aiida.aiida_core.engine.calcjobs.calcjob import CalcJob
+#from airflow_provider_aiida.aiida_core.engine.calcjobs.calcjob import CalcJob
+from aiida.engine.processes.calcjobs.calcjob import CalcJob
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from airflow_provider_aiida.aiida_core.engine.processes.process_spec import CalcJobProcessSpec
 
+# TODO replace with import
 class ArithmeticAddCalculation(CalcJob):
     """`CalcJob` implementation to add two numbers using bash for testing and demonstration purposes."""
 
@@ -85,17 +87,19 @@ with DAG(
     params={
         "x": Param(8, type="integer", description="First operand for addition"),
         "y": Param(4, type="integer", description="Second operand for addition"),
-        "sleep": Param(0, type="integer", description="Sleep"),
+        "code": Param("bash@localhost", type="string"),
+        "metadata": {"options": {"sleep": 0}},
     }
 ) as dag:
+    from aiida.calculations.arithmetic.add import ArithmeticAddCalculation
     print(ArithmeticAddCalculation.__module__)
-    breakpoint()
     add_job = CalcJobTaskGroup(
         group_id="ArithmeticAddCalculation",
-        process=ArithmeticAddCalculation,
+        process_class=ArithmeticAddCalculation,
         inputs = dict(x= "{{ params.x }}",
                       y="{{ params.y }}",
-                      sleep="{{ params.y }}")
+                      metadata="{{ params.metadata }}",
+                )
     )
 
     add_job
@@ -114,7 +118,8 @@ if __name__ == "__main__":
         run_conf={
             "x": 8,
             "y": 4,
-            "sleep": 0,
+            "metadata": {"options": {"sleep": 0}},
+            "code": "bash@localhost"
         }
     )
 

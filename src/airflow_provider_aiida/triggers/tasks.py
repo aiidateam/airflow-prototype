@@ -4,28 +4,42 @@ These triggers directly execute the task functions from aiida-core's calcjob tas
 allowing CalcJob operations to be performed asynchronously in the Airflow triggerer.
 """
 
-import asyncio
 import logging
 from typing import Any, AsyncIterator
 
 from airflow.triggers.base import BaseTrigger, TriggerEvent
 
-from airflow_provider_aiida.aiida_core.engine.calcjobs.tasks import (
+
+from aiida.engine.processes.calcjobs.tasks import (
     task_upload_job,
     task_submit_job,
     task_update_job,
-    task_monitor_job,
-    task_retrieve_job,
-    task_stash_job,
-    task_unstash_job,
-    task_kill_job,
+    task_retrieve_job
 )
+
+# TODO adapt these like above
+#from airflow_provider_aiida.aiida_core.engine.calcjobs.tasks import (
+#    task_monitor_job,
+#    task_stash_job,
+#    task_unstash_job,
+#    task_kill_job,
+#)
 from aiida.engine.utils import InterruptableFuture
 from aiida.orm import load_node
 from airflow_provider_aiida.aiida_core.engine.runner import Runner
 
 logger = logging.getLogger(__name__)
 
+
+def load_process(node_pk: int):
+    from aiida import load_profile
+    load_profile()
+    from aiida.engine import persistence
+    from plumpy.persistence import LoadSaveContext
+    persister = persistence.AiiDAPersister()
+    saved_state = persister.load_checkpoint(node_pk)
+    process = saved_state.unbundle(LoadSaveContext())
+    return process
 
 class CalcJobUploadTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_upload_job function."""
@@ -49,36 +63,12 @@ class CalcJobUploadTrigger(BaseTrigger):
         """Execute the upload task."""
         try:
             # Load AiiDA profile (triggers run in separate process)
-            from aiida import load_profile
-            load_profile()
-
-            from aiida.common.datastructures import CalcInfo, CodeInfo
-
-            # Load the CalcJobNode
-            node = load_node(self.node_pk)
-
-            # Reconstruct calc_info from node attributes
-            calc_info = CalcInfo()
-            calc_info.uuid = node.base.attributes.get('_calc_info_uuid', str(node.uuid))
-            calc_info.skip_submit = node.base.attributes.get('_calc_info_skip_submit', False)
-
-            # Reconstruct codes_info if present
-            codes_info_data = node.base.attributes.get('_calc_info_codes_info', [])
-            calc_info.codes_info = []
-            for ci_data in codes_info_data:
-                code_info = CodeInfo()
-                code_info.code_uuid = ci_data.get('code_uuid')
-                code_info.cmdline_params = ci_data.get('cmdline_params', [])
-                code_info.stdin_name = ci_data.get('stdin_name')
-                code_info.stdout_name = ci_data.get('stdout_name')
-                code_info.stderr_name = ci_data.get('stderr_name')
-                code_info.join_files = ci_data.get('join_files', False)
-                calc_info.codes_info.append(code_info)
+            process = load_process(self.node_pk)
 
             transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
-            skip_submit = await task_upload_job(node, transport_queue, cancellable, calc_info)
+            skip_submit = await task_upload_job(process, transport_queue, cancellable)
 
             yield TriggerEvent({
                 "status": "success",
@@ -114,8 +104,8 @@ class CalcJobSubmitTrigger(BaseTrigger):
         try:
             # Load AiiDA profile (triggers run in separate process)
             from aiida import load_profile
+            from aiida.orm import load_node
             load_profile()
-
             node = load_node(self.node_pk)
             transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
@@ -161,8 +151,8 @@ class CalcJobUpdateTrigger(BaseTrigger):
         try:
             # Load AiiDA profile (triggers run in separate process)
             from aiida import load_profile
+            from aiida.orm import load_node
             load_profile()
-
             node = load_node(self.node_pk)
             transport_queue = Runner.get_instance().transport_queue
             from aiida.engine.processes.calcjobs.manager import JobManager
@@ -268,22 +258,20 @@ class CalcJobRetrieveTrigger(BaseTrigger):
         """Execute the retrieve task."""
         try:
             # Load AiiDA profile (triggers run in separate process)
-            from aiida import load_profile
-            load_profile()
-
-            node = load_node(self.node_pk)
+            process = load_process(self.node_pk)
             transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
             import tempfile
             temp_folder = tempfile.mkdtemp()
             retrieved = await task_retrieve_job(
-                node, transport_queue, temp_folder, cancellable
+                process, transport_queue, temp_folder, cancellable
             )
 
             yield TriggerEvent({
                 "status": "success",
                 "retrieved": retrieved is not None,
+                "temp_folder": temp_folder,
             })
         except Exception as e:
             import traceback

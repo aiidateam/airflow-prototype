@@ -100,24 +100,21 @@ class CalcJobUpdateOperator(BaseOperator):
     polling until the job is complete.
     """
 
-    template_fields = ["node_pk", "sleep_interval"]
+    template_fields = ["node_pk"]
 
-    def __init__(self, node_pk: int, sleep_interval: int = 5, **kwargs):
+    def __init__(self, node_pk: int, **kwargs):
         """Initialize the update operator.
 
         :param node_pk: Primary key of the CalcJobNode to update
-        :param sleep_interval: Seconds to sleep between update checks
         """
         super().__init__(**kwargs)
         self.node_pk = node_pk
-        self.sleep_interval = sleep_interval
 
     def execute(self, context: Context):
         """Defer to the update trigger."""
         self.defer(
             trigger=CalcJobUpdateTrigger(
                 node_pk=self.node_pk,
-                sleep_interval=self.sleep_interval,
             ),
             method_name="execute_complete",
         )
@@ -215,8 +212,11 @@ class CalcJobRetrieveOperator(BaseOperator):
             raise ValueError(error_msg)
 
         retrieved = event.get("retrieved", False)
+        temp_folder = event.get("temp_folder", None)
+        if temp_folder is None:
+            raise ValueError() # TODO
         self.log.info(f"Retrieve completed successfully. Retrieved: {retrieved}")
-        return {"retrieved": retrieved}
+        return {"retrieved": retrieved, "temp_folder": temp_folder}
 
 
 class CalcJobStashOperator(BaseOperator):
