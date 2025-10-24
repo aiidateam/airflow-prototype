@@ -19,10 +19,10 @@ from airflow.models.param import Param
 from aiida.engine import CalcJobProcessSpec
 from aiida.orm import Int, Str
 
-from airflow_provider_aiida.taskgroups.async_aiida_calcjob import SimpleAsyncAiiDACalcJobTaskGroup
+from airflow_provider_aiida.taskgroups.calcjob import SimpleCalcJobTaskGroup
 
 
-class AiiDAAddJobTaskGroup(SimpleAsyncAiiDACalcJobTaskGroup):
+class AiiDAAddJobTaskGroup(SimpleCalcJobTaskGroup):
     """Addition job using native AiiDA CalcJob task functions."""
 
     @classmethod
@@ -150,7 +150,7 @@ class AiiDAAddJobTaskGroup(SimpleAsyncAiiDACalcJobTaskGroup):
         }
 
 
-class AiiDAMultiplyJobTaskGroup(SimpleAsyncAiiDACalcJobTaskGroup):
+class AiiDAMultiplyJobTaskGroup(SimpleCalcJobTaskGroup):
     """Multiplication job using native AiiDA CalcJob task functions."""
 
     @classmethod
