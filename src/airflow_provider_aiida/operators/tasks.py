@@ -4,7 +4,7 @@ These operators provide async execution of AiiDA CalcJob transport tasks by defe
 to the corresponding triggers that wrap aiida-core's task functions.
 """
 
-from typing import Any
+from airflow.exceptions import AirflowSkipException
 
 from airflow.models import BaseOperator
 from airflow.utils.context import Context
@@ -54,7 +54,7 @@ class CalcJobUploadOperator(BaseOperator):
 
         skip_submit = event.get("skip_submit", False)
         self.log.info(f"Upload completed successfully. Skip submit: {skip_submit}")
-        return {"skip_submit": skip_submit}
+        return skip_submit
 
 
 class CalcJobSubmitOperator(BaseOperator):
@@ -88,9 +88,9 @@ class CalcJobSubmitOperator(BaseOperator):
                 error_msg += f"\n\nFull traceback:\n{event['traceback']}"
             raise ValueError(error_msg)
 
-        job_id = event.get("job_id")
-        self.log.info(f"Submit completed successfully. Job ID: {job_id}")
-        return {"job_id": job_id}
+        successful =  event.get("successful")
+        self.log.info(f"Submit completed successfully: {successful}")
+        return successful
 
 
 class CalcJobUpdateOperator(BaseOperator):
@@ -100,18 +100,21 @@ class CalcJobUpdateOperator(BaseOperator):
     polling until the job is complete.
     """
 
-    template_fields = ["node_pk"]
+    template_fields = ["node_pk", "submit_successful"]
 
-    def __init__(self, node_pk: int, **kwargs):
+    def __init__(self, node_pk: int, submit_successful: bool, **kwargs):
         """Initialize the update operator.
 
         :param node_pk: Primary key of the CalcJobNode to update
         """
         super().__init__(**kwargs)
         self.node_pk = node_pk
+        self.submit_successful = submit_successful
 
     def execute(self, context: Context):
         """Defer to the update trigger."""
+        if not self.submit_successful:
+            raise AirflowSkipException("Submission was not successful. Skipping further execution of CalcJob.")
         self.defer(
             trigger=CalcJobUpdateTrigger(
                 node_pk=self.node_pk,

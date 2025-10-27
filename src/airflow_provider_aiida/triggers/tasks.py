@@ -14,24 +14,35 @@ from aiida.engine.processes.calcjobs.tasks import (
     task_upload_job,
     task_submit_job,
     task_update_job,
-    task_retrieve_job
+    task_retrieve_job,
+    task_unstash_job,
+    task_stash_job,
 )
 
 # TODO adapt these like above
 #from airflow_provider_aiida.aiida_core.engine.calcjobs.tasks import (
 #    task_monitor_job,
 #    task_stash_job,
-#    task_unstash_job,
 #    task_kill_job,
 #)
 from aiida.engine.utils import InterruptableFuture
 from aiida.orm import load_node
 from airflow_provider_aiida.aiida_core.engine.runner import Runner
+import plumpy
 
 logger = logging.getLogger(__name__)
 
+def load_process(node_pk: int):
+    """reenters same state"""
+    from aiida import load_profile
+    load_profile()
+    from aiida.engine import persistence
+    from plumpy.persistence import LoadSaveContext
+    persister = persistence.AiiDAPersister()
+    saved_state = persister.load_checkpoint(node_pk)
+    return saved_state.unbundle(LoadSaveContext())
 
-def load_process_from_same_state(node_pk: int):
+def load_process_to_waiting_state(node_pk: int):
     """reenters same state"""
     from aiida import load_profile
     load_profile()
@@ -40,9 +51,9 @@ def load_process_from_same_state(node_pk: int):
     persister = persistence.AiiDAPersister()
     saved_state = persister.load_checkpoint(node_pk)
     process = saved_state.unbundle(LoadSaveContext())
+    new_state = plumpy.process_states.Waiting(process=process, done_callback=None)
 
-    process.on_entering(process._state)
-    process.on_entered(process._state)
+    process.transition_to(new_state)
 
     return process
 
@@ -75,13 +86,17 @@ class CalcJobUploadTrigger(BaseTrigger):
         """Execute the upload task."""
         try:
             # Load AiiDA profile (triggers run in separate process)
-            process = load_process_from_same_state(self.node_pk)
+            process = load_process_to_waiting_state(self.node_pk)
 
             transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
             skip_submit = await task_upload_job(process, transport_queue, cancellable)
             save_checkpoint(process)
+
+            node = process.node
+            if node.get_option('unstash') and node.process_type == 'aiida.calculations:core.unstash':
+                await task_unstash_job(node, transport_queue, cancellable)
 
             yield TriggerEvent({
                 "status": "success",
@@ -116,6 +131,7 @@ class CalcJobSubmitTrigger(BaseTrigger):
         """Execute the submit task."""
         try:
             # Load AiiDA profile (triggers run in separate process)
+            from aiida.engine.processes.exit_code import ExitCode
             from aiida import load_profile
             from aiida.orm import load_node
             load_profile()
@@ -123,11 +139,22 @@ class CalcJobSubmitTrigger(BaseTrigger):
             transport_queue = Runner.get_instance().transport_queue
             cancellable = InterruptableFuture()
 
-            job_id = await task_submit_job(node, transport_queue, cancellable)
+            result = await task_submit_job(node, transport_queue, cancellable)
+            
+            if isinstance(result, ExitCode):
+                # The scheduler plugin returned an exit code from ``Scheduler.submit_job`` indicating the
+                # job submission failed due to a non-transient problem and the job should be terminated.
+                process = load_process(self.node_pk)
+                new_state = plumpy.process_states.Finished(process=process, result=result, successful=False)
+                process.transition_to(new_state)
+                yield TriggerEvent({
+                    "status": "success",
+                    "successful": False,
+                })
 
             yield TriggerEvent({
                 "status": "success",
-                "job_id": job_id,
+                "successful": True,
             })
         except Exception as e:
             import traceback
@@ -271,8 +298,9 @@ class CalcJobRetrieveTrigger(BaseTrigger):
         """Execute the retrieve task."""
         try:
             # Load AiiDA profile (triggers run in separate process)
-            process = load_process_from_same_state(self.node_pk)
+            process = load_process_to_waiting_state(self.node_pk)
             transport_queue = Runner.get_instance().transport_queue
+            # TODO check this dummy interruptable
             cancellable = InterruptableFuture()
 
             import tempfile

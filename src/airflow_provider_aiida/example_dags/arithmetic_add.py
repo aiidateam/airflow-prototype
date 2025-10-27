@@ -21,20 +21,23 @@ from airflow.models.param import Param
 with DAG(
     'arithmetic_add_calcjob',
     params={
-        "x": Param(8, type="integer", description="First operand for addition"),
-        "y": Param(4, type="integer", description="Second operand for addition"),
-        "code": Param("bash@localhost", type="string"),
-        "metadata": {"options": {"sleep": 0}},
-    }
+        #"x": Param(8, type="integer", description="First operand for addition"),
+        #"y": Param(4, type="integer", description="Second operand for addition"),
+        #"code": Param("bash@localhost", type="string"),
+        #"metadata": {"options": {"sleep": 0}},
+        #"node_pk": Param(None, type=["integer", "null"])
+        "node_pk": Param("", type="integer")
+    },
+    render_template_as_native_obj = True
 ) as dag:
-    print(ArithmeticAddCalculation.__module__)
     add_job = CalcJobTaskGroup(
         group_id="ArithmeticAddCalculation",
         process_class=ArithmeticAddCalculation,
-        inputs = dict(x= "{{ params.x }}",
-                      y="{{ params.y }}",
-                      metadata="{{ params.metadata }}",
-                )
+        node_pk="{{ params.node_pk }}",
+        #inputs = dict(x="{{ params.x }}",
+        #              y="{{ params.y }}",
+        #              metadata="{{ params.metadata }}",
+        #        )
     )
 
     add_job
@@ -49,12 +52,26 @@ if __name__ == "__main__":
     print("=" * 60)
 
     # Test the DAG with default parameters
+    from aiida.orm import load_code, Int
+    code = load_code('bash@localhost')
+    inputs = {
+        'code': code,
+        'x': Int(0),
+        'y': Int(1),
+        #'metadata': {'options': {'sleep': 5}} 
+    }
+    
+    process = ArithmeticAddCalculation(inputs=inputs)
+    # For creating pesistence checkpoints and other database related actions
+    process._save_checkpoint()
+
     dag.test(
         run_conf={
-            "x": 8,
-            "y": 4,
-            "metadata": {"options": {"sleep": 0}},
-            "code": "bash@localhost"
+            #"x": 8,
+            #"y": 4,
+            #"metadata": {"options": {"sleep": 0}},
+            #"code": "bash@localhost"
+            "node_pk": process.node.pk
         }
     )
 
