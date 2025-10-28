@@ -54,7 +54,6 @@ class CalcJobTaskGroup(TaskGroup):
 
     def __init__(
         self,
-        group_id: str,
         process_class,
         node_pk: int
     ):
@@ -62,7 +61,7 @@ class CalcJobTaskGroup(TaskGroup):
 
         :param group_id: Unique identifier for this task group
         """
-        super().__init__(group_id=group_id)
+        super().__init__(group_id=process_class.__name__)
         self.process_class = process_class
         self.node_pk = node_pk
         self._build_tasks()

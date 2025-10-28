@@ -31,7 +31,6 @@ with DAG(
     render_template_as_native_obj = True
 ) as dag:
     add_job = CalcJobTaskGroup(
-        group_id="ArithmeticAddCalculation",
         process_class=ArithmeticAddCalculation,
         node_pk="{{ params.node_pk }}",
         #inputs = dict(x="{{ params.x }}",
