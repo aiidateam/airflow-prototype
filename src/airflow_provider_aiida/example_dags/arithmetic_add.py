@@ -21,11 +21,6 @@ from airflow.models.param import Param
 with DAG(
     'arithmetic_add_calcjob',
     params={
-        #"x": Param(8, type="integer", description="First operand for addition"),
-        #"y": Param(4, type="integer", description="Second operand for addition"),
-        #"code": Param("bash@localhost", type="string"),
-        #"metadata": {"options": {"sleep": 0}},
-        #"node_pk": Param(None, type=["integer", "null"])
         "node_pk": Param("", type="integer")
     },
     render_template_as_native_obj = True
@@ -33,10 +28,6 @@ with DAG(
     add_job = CalcJobTaskGroup(
         process_class=ArithmeticAddCalculation,
         node_pk="{{ params.node_pk }}",
-        #inputs = dict(x="{{ params.x }}",
-        #              y="{{ params.y }}",
-        #              metadata="{{ params.metadata }}",
-        #        )
     )
 
     add_job
