@@ -42,6 +42,7 @@ class Runner:
             instance._persister = AiiDAPersister()
             # TODO JobManager?
             instance._plugin_version_provider = PluginVersionProvider()
+            instance._poll_interval = 1
 
 
             cls._instance = instance
@@ -105,24 +106,63 @@ class Runner:
         #assert self.controller is not None, 'runner does not have a controller'
         cls._instance._persister.save_checkpoint(process_inited)
         #process_inited.close()
-
-        from airflow.api.client import get_current_api_client
-        client = get_current_api_client()
+        if True:
+            from airflow.api.client import get_current_api_client
+            client = get_current_api_client()
 
 # Trigger the DAG run
-        client.trigger_dag(
-            dag_id=process_inited.__class__.__name__,
-            conf={'node_pk': process_inited.pid}
-        )
+            client.trigger_dag(
+                dag_id=process_inited.__class__.__name__,
+                conf={'node_pk': process_inited.pid}
+            )
 
-        #self.controller.continue_process(process_inited.pid)
-        #else:
-        #    self.loop.create_task(process_inited.step_until_terminated())
-
+            #self.controller.continue_process(process_inited.pid)
+            #else:
+            #    self.loop.create_task(process_inited.step_until_terminated())
+        else:
+            cls._instance.loop.create_task(process_inited.step_until_terminated())
         return process_inited.node
 
     def call_on_process_finish(self, pk: int, callback: Callable[[], Any]) -> None:
-        pass
+        import functools
+        from aiida.orm import load_node
+        import uuid
+        import threading
+
+        node = load_node(pk=pk)
+        subscriber_identifier = str(uuid.uuid4())
+        event = threading.Event()
+
+        def inline_callback(event, *args, **kwargs):
+            """Callback to wrap the actual callback, that will always remove the subscriber that will be registered.
+
+            As soon as the callback is called successfully once, the `event` instance is toggled, such that if this
+            inline callback is called a second time, the actual callback is not called again.
+            """
+            if event.is_set():
+                return
+
+            try:
+                callback()
+            finally:
+                event.set()
+                if self.communicator:
+                    self.communicator.remove_broadcast_subscriber(subscriber_identifier)
+
+        self._poll_process(node, functools.partial(inline_callback, event))
+
+    def _poll_process(self, node, callback):
+        """Check whether the process state of the node is terminated and call the callback or reschedule it.
+
+        :param node: the process node
+        :param callback: callback to be called when process is terminated
+        """
+        if node.is_terminated:
+            args = [node.__class__.__name__, node.pk]
+            #LOGGER.info('%s<%d> confirmed to be terminated by backup polling mechanism', *args)
+            self._loop.call_soon(callback)
+        else:
+            self._loop.call_later(self._poll_interval, self._poll_process, node, callback)
 
     @classmethod
     @property
@@ -130,10 +170,9 @@ class Runner:
         """Get the event loop of this runner."""
         return cls._instance._loop
 
-    @classmethod
     @property
-    def transport(cls) -> TransportQueue:
-        return cls._instance._transport
+    def transport(self) -> TransportQueue:
+        return self._transport_queue
 
     @classmethod
     @property
