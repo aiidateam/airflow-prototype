@@ -40,7 +40,10 @@ def load_process(node_pk: int):
     from plumpy.persistence import LoadSaveContext
     persister = persistence.AiiDAPersister()
     saved_state = persister.load_checkpoint(node_pk)
-    return saved_state.unbundle(LoadSaveContext())
+    proc = saved_state.unbundle(LoadSaveContext())
+    proc._runner = Runner.get_instance()
+    return proc
+
 
 def load_process_to_waiting_state(node_pk: int):
     """reenters same state"""

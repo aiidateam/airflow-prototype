@@ -6,7 +6,7 @@ This script must be run from within the Airflow environment.
 from airflow.api.client import get_current_api_client
 
 # DAG configuration
-DAG_ID = "arithmetic_add_calcjob"
+DAG_ID = "ArithmeticAddCalculation"
 
 
 # Create Process

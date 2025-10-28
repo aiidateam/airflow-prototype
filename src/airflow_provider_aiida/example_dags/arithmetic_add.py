@@ -19,7 +19,7 @@ from airflow import DAG
 from airflow.models.param import Param
 
 with DAG(
-    'arithmetic_add_calcjob',
+    'ArithmeticAddCalculation',
     params={
         "node_pk": Param("", type="integer")
     },
