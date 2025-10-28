@@ -18,8 +18,32 @@ from airflow_provider_aiida.triggers.tasks import (
     CalcJobStashTrigger,
     CalcJobUnstashTrigger,
     CalcJobKillTrigger,
+    ProcStepUntilTerminatedTrigger,
 )
 
+class ProcStepUntilTerminatedOperator(BaseOperator):
+
+    template_fields = ["node_pk"]
+
+    def __init__(self, node_pk: int, **kwargs):
+        super().__init__(**kwargs)
+        self.node_pk = node_pk
+
+    def execute(self, context: Context):
+        self.defer(
+            trigger=ProcStepUntilTerminatedTrigger(node_pk=self.node_pk),
+            method_name="execute_complete",
+        )
+
+    def execute_complete(self, context: Context, event: dict):
+        if event["status"] == "error":
+            error_msg = f"Step until terminated failed: {event['message']}"
+            if "traceback" in event:
+                error_msg += f"\n\nFull traceback:\n{event['traceback']}"
+            raise ValueError(error_msg)
+
+        self.log.info(f"Step until terminated completed successfully.")
+        return None
 
 class CalcJobUploadOperator(BaseOperator):
     """Operator that defers to CalcJobUploadTrigger to upload CalcJob files.

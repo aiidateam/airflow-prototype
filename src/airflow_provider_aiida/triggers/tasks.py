@@ -64,6 +64,41 @@ def save_checkpoint(process):
         raise
     process._save_checkpoint()
 
+
+class ProcStepUntilTerminatedTrigger(BaseTrigger):
+    """Trigger that executes the AiiDA task_upload_job function."""
+
+    def __init__(self, node_pk: int):
+        """Initialize the upload trigger.
+
+        :param node_pk: Primary key of the CalcJobNode to upload
+        """
+        super().__init__()
+        self.node_pk = node_pk
+
+    def serialize(self) -> tuple[str, dict[str, Any]]:
+        """Serialize the trigger for persistence."""
+        return (
+            "airflow_provider_aiida.triggers.tasks.ProcStepUntilTerminatedTrigger",
+            {"node_pk": self.node_pk},
+        )
+
+    async def run(self) -> AsyncIterator[TriggerEvent]:
+        """Execute the upload task."""
+        try:
+            proc = load_process(self.node_pk)
+            await proc.step_until_terminated()
+            result = proc.future().result()
+
+            yield TriggerEvent({
+                "status": "success",
+            })
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            logger.exception(f"Step until terminated task failed for node {self.node_pk}")
+            yield TriggerEvent({"status": "error", "message": str(e), "traceback": tb})
+
 class CalcJobUploadTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_upload_job function."""
 
