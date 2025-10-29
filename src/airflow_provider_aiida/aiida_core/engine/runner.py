@@ -7,6 +7,7 @@ from aiida.engine.persistence import AiiDAPersister
 from aiida.engine.transports import TransportQueue
 from aiida.engine import utils
 from aiida.plugins.utils import PluginVersionProvider
+from aiida.engine.processes.calcjobs import manager
 
 
 
@@ -41,6 +42,7 @@ class Runner:
             instance._transport_queue = TransportQueue(loop=loop)
             instance._persister = AiiDAPersister()
             # TODO JobManager?
+            instance._job_manager = manager.JobManager(instance._transport_queue)
             instance._plugin_version_provider = PluginVersionProvider()
             instance._poll_interval = 1
 
@@ -53,6 +55,10 @@ class Runner:
     def __init__(self, loop: Optional[asyncio.AbstractEventLoop]):
         """Initialize is a no-op since __new__ handles everything."""
         pass
+
+    @property
+    def job_manager(self) -> manager.JobManager:
+        return self._job_manager
 
     @property
     def transport_queue(self) -> TransportQueue:

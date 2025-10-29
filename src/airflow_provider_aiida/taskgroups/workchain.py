@@ -69,7 +69,6 @@ class WorkChainTaskGroup(TaskGroup):
             node_pk=self.node_pk,
             task_group=self,
         )
-        exec_op
 
 
     def _build_tasks_old(self):

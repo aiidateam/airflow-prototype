@@ -24,6 +24,7 @@ from airflow_provider_aiida.operators.tasks import (
     CalcJobRetrieveOperator,
     CalcJobStashOperator,
     CalcJobUnstashOperator,
+    ProcStepUntilTerminatedOperator
 )
 
 # TODO
@@ -198,6 +199,13 @@ class CalcJobTaskGroup(TaskGroup):
             return self.create_state(ProcessState.RUNNING, self.process.terminate, result)
 
     def _build_tasks(self):
+        ProcStepUntilTerminatedOperator(
+            task_id="step_until_terminate",
+            node_pk=self.node_pk,
+            task_group=self,
+        )
+
+    def _build_tasks_old(self):
         """Build all tasks within this task group following AiiDA's CalcJob workflow."""
 
         # Task to create CalcJobNode and prepare for submission (only if node_pk not provided)

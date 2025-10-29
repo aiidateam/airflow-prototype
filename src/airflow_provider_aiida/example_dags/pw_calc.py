@@ -7,7 +7,7 @@ from airflow import DAG
 from airflow.sdk import Param
 
 with DAG(
-    'pw_calcjob',
+    'PwCalculation',
     params={
         "node_pk": Param("", type="integer")
     },
