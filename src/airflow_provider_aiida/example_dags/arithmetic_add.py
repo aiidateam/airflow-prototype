@@ -1,58 +1,70 @@
-from airflow_provider_aiida.dags import AiidaDAG
+###########################################################################
+# Copyright (c), The AiiDA team. All rights reserved.                     #
+# This file is part of the AiiDA code.                                    #
+#                                                                         #
+# The code is hosted on GitHub at https://github.com/aiidateam/aiida-core #
+# For further information on the license, see the LICENSE.txt file        #
+# For further information please visit http://www.aiida.net               #
+###########################################################################
+"""`CalcJob` implementation to add two numbers using bash for testing and demonstration purposes."""
+from __future__ import annotations
+from aiida import orm
+from aiida.common.datastructures import CalcInfo, CodeInfo
+from aiida.common.folders import Folder
+from airflow_provider_aiida.taskgroups.calcjob import CalcJobTaskGroup
+from aiida.engine.processes.calcjobs.calcjob import CalcJob
+from aiida.calculations.arithmetic.add import ArithmeticAddCalculation
+
+from airflow import DAG
+from airflow.models.param import Param
+
+with DAG(
+    'ArithmeticAddCalculation',
+    params={
+        "node_pk": Param("", type="integer")
+    },
+    render_template_as_native_obj = True
+) as dag:
+    add_job = CalcJobTaskGroup(
+        process_class=ArithmeticAddCalculation,
+        node_pk="{{ params.node_pk }}",
+    )
+
+    add_job
 
 
-####################
-### WORKFLOW DEV ###
-####################
+if __name__ == "__main__":
+    from aiida import load_profile
+    load_profile()
 
-def AddDAG(**kwargs):
-    if 'params' not in kwargs:
-        kwargs['params'] = {}
-    kwargs['params'].update({
-        "x": Param("5", type="string"), # TODO to int
-        "y": Param("2", type="string"),
-        "sleep": Param("20", type="string"),
-        })
-    return AiidaDAG(**kwargs)
+    print("=" * 60)
+    print("Testing arithmetic_aiida_native_single DAG")
+    print("=" * 60)
 
-with AddDAG(
-    dag_id=Path(__file__).stem) as dag:
+    # Test the DAG with default parameters
+    from aiida.orm import load_code, Int
+    code = load_code('bash@localhost')
+    inputs = {
+        'code': code,
+        'x': Int(0),
+        'y': Int(1),
+        #'metadata': {'options': {'sleep': 5}} 
+    }
+    
+    process = ArithmeticAddCalculation(inputs=inputs)
+    # For creating pesistence checkpoints and other database related actions
+    process._save_checkpoint()
 
-    @task
-    def prepare(x: int, y: int, sleep: int) -> dict:
-        # TODO add to database
-        to_upload_files = {}
-        submission_script = f"""
-sleep {sleep}
-echo "$(({x}+{y}))" > file.out
-        """
-        to_receive_files = {"file.out": "result.txt"}
-        return {"to_upload_files": to_upload_files,
-                "submission_script": submission_script,
-                "to_receive_files": to_receive_files}
+    dag.test(
+        run_conf={
+            #"x": 8,
+            #"y": 4,
+            #"metadata": {"options": {"sleep": 0}},
+            #"code": "bash@localhost"
+            "node_pk": process.node.pk
+        }
+    )
 
-    @task
-    def parse(local_workdir: str, received_files: dict[str, str]):
-        for received_file in received_files.values():
-            print(f"Final result: {(Path(local_workdir) / Path(received_file)).read_text()}")
-
-    ##########################################################################
-    ### THE CODE BELOW SHOULD BE AUTOMATICALLY CONNECTED TO THE CODE ABOVE ###
-
-    # NOTE: no argument means all parms are passed
-    prepare_op = prepare(x="{{ params.x }}", y="{{ params.y }}", sleep="{{ params.sleep }}")
-    to_upload_files, submission_script, to_receive_files = prepare_op["to_upload_files"], prepare_op["submission_script"], prepare_op["to_receive_files"]
-
-    calcjob_op = CalcJobTaskOperator(task_id="calcjob_task",
-                   machine="{{ params.machine }}",
-                   local_workdir="{{ params.local_workdir }}",
-                   remote_workdir="{{ params.remote_workdir }}",
-                   to_upload_files=to_upload_files,
-                   to_receive_files=to_receive_files,
-                   submission_script=submission_script,
-                )
-
-
-    parse_op = parse(local_workdir="{{ params.local_workdir }}", received_files=to_receive_files)
-
-    prepare_op >> calcjob_op >> parse_op
+    print("\n" + "=" * 60)
+    print("DAG test completed!")
+    print("=" * 60)
