@@ -7,18 +7,5 @@ def get_provider_info():
         "description": "An Apache Airflow provider for AiiDA.",  # Required
         #"operators": #TODO
         #"triggers": #TODO
-        "hooks": [
-            {
-                "integration-name": "SSH",
-                "python-modules": ["aiida_provider.hooks.ssh"],
-            }
-        ],
-        "connection-types": [
-            {
-                "connection-type": "ssh",
-                "hook-class-name": "aiida_provider.hooks.ssh.SSHHook",
-                "hook-name": "SSH"
-            }
-        ],
         "versions": [__version__],  # Required
     }
