@@ -2,17 +2,25 @@
 
 import asyncio
 import logging
-from typing import Optional, Any, Callable
+import signal
+from typing import Optional, Any, Callable, NamedTuple, Dict, Tuple, Union, Type
 from aiida.engine.persistence import AiiDAPersister
 from aiida.engine.transports import TransportQueue
 from aiida.engine import utils
 from aiida.plugins.utils import PluginVersionProvider
 from aiida.engine.processes.calcjobs import manager
-
+from aiida.orm import ProcessNode 
+from aiida.common import exceptions
+from aiida.engine.processes import Process, ProcessBuilder
 
 
 _LOGGER = logging.getLogger(__name__)
 
+TYPE_RUN_PROCESS = Union[Process, Type[Process], ProcessBuilder]
+
+class ResultAndNode(NamedTuple):
+    result: Dict[str, Any]
+    node: ProcessNode
 
 class Runner:
     """Singleton runner that owns the TransportQueue for the triggerer process.
@@ -39,11 +47,12 @@ class Runner:
                     asyncio.set_event_loop(loop)
 
             instance._loop = loop
+            # TODO rename to transport because this is how it is named in aiida runner
             instance._transport_queue = TransportQueue(loop=loop)
             instance._persister = AiiDAPersister()
-            # TODO JobManager?
             instance._job_manager = manager.JobManager(instance._transport_queue)
             instance._plugin_version_provider = PluginVersionProvider()
+            # TODO this should not be hardcoded
             instance._poll_interval = 1
 
 
@@ -81,9 +90,8 @@ class Runner:
         cls._instance = None
         _LOGGER.debug("Cleared Runner singleton")
 
-    @classmethod
-    def instantiate_process(cls, process, **inputs):
-        return utils.instantiate_process(cls._instance, process, **inputs)
+    def instantiate_process(self, process, **inputs):
+        return utils.instantiate_process(self, process, **inputs)
 
     @classmethod
     def submit(cls, process, inputs: dict[str, Any] | None = None, **kwargs: Any):
@@ -193,3 +201,71 @@ class Runner:
     @property
     def plugin_version_provider(self) -> PluginVersionProvider:
         return self._instance._plugin_version_provider
+
+    def _run(
+        self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any
+    ) -> Tuple[Dict[str, Any], ProcessNode]:
+        """Run the process with the supplied inputs in this runner that will block until the process is completed.
+
+        The return value will be the results of the completed process
+
+        :param process: the process class or process function to run
+        :param inputs: the inputs to be passed to the process
+        :return: tuple of the outputs of the process and the calculation node
+        """
+        inputs = utils.prepare_inputs(inputs, **kwargs)
+
+        if utils.is_process_function(process):
+            result, node = process.run_get_node(**inputs)  # type: ignore[union-attr]
+            return result, node
+
+        with utils.loop_scope(self.loop):
+            process_inited = self.instantiate_process(process, **inputs)
+
+            def kill_process(_num, _frame):
+                """Send the kill signal to the process in the current scope."""
+                if process_inited.is_killing:
+                    LOGGER.warning('runner received interrupt, process %s already being killed', process_inited.pid)
+                    return
+                LOGGER.critical('runner received interrupt, killing process %s', process_inited.pid)
+                process_inited.kill(msg_text='Process was killed because the runner received an interrupt')
+
+            original_handler_int = signal.getsignal(signal.SIGINT)
+            original_handler_term = signal.getsignal(signal.SIGTERM)
+
+            try:
+                signal.signal(signal.SIGINT, kill_process)
+                signal.signal(signal.SIGTERM, kill_process)
+                process_inited.execute()
+            finally:
+                signal.signal(signal.SIGINT, original_handler_int)
+                signal.signal(signal.SIGTERM, original_handler_term)
+
+            return process_inited.outputs, process_inited.node
+
+    def run(self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any) -> Dict[str, Any]:
+        """Run the process with the supplied inputs in this runner that will block until the process is completed.
+
+        The return value will be the results of the completed process
+
+        :param process: the process class or process function to run
+        :param inputs: the inputs to be passed to the process
+        :return: the outputs of the process
+        """
+        result, _ = self._run(process, inputs, **kwargs)
+        return result
+
+    def run_get_node(
+        self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any
+    ) -> ResultAndNode:
+        """Run the process with the supplied inputs in this runner that will block until the process is completed.
+
+        The return value will be the results of the completed process
+
+        :param process: the process class or process function to run
+        :param inputs: the inputs to be passed to the process
+        :return: tuple of the outputs of the process and the calculation node
+        """
+        result, node = self._run(process, inputs, **kwargs)
+        return ResultAndNode(result, node)
+

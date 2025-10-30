@@ -42,7 +42,7 @@ class ProcStepUntilTerminatedTrigger(BaseTrigger):
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize the trigger for persistence."""
         return (
-            "airflow_provider_aiida.triggers.tasks.ProcStepUntilTerminatedTrigger",
+            "airflow_provider_aiida.triggers.process.ProcStepUntilTerminatedTrigger",
             {"node_pk": self.node_pk},
         )
 

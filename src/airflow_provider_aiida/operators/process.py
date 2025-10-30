@@ -3,13 +3,11 @@
 These operators provide async execution of AiiDA CalcJob transport tasks by deferring
 to the corresponding triggers that wrap aiida-core's task functions.
 """
-
-from airflow.exceptions import AirflowSkipException
-
 from airflow.models import BaseOperator
+from airflow_provider_aiida.triggers.process import ProcStepUntilTerminatedTrigger
+
 from airflow.utils.context import Context
 
-from airflow_provider_aiida.triggers.tasks import ProcStepUntilTerminatedTrigger
 
 class ProcStepUntilTerminatedOperator(BaseOperator):
 

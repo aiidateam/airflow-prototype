@@ -1,5 +1,6 @@
 from __future__ import annotations
-from airflow_provider_aiida.taskgroups.workchain import WorkChainTaskGroup
+
+from airflow_provider_aiida.taskgroups.process import ProcessTaskGroup 
 from aiida.workflows.arithmetic.multiply_add import MultiplyAddWorkChain 
 
 
@@ -7,19 +8,16 @@ from airflow import DAG
 from airflow.models.param import Param
 
 with DAG(
-    'multiply_add_workchain',
+    'MultiplyAddWorkChain',
     params={
         "node_pk": Param("", type="integer")
     },
     render_template_as_native_obj = True
 ) as dag:
-    add_job = WorkChainTaskGroup(
+    ProcessTaskGroup(
         process_class=MultiplyAddWorkChain,
         node_pk="{{ params.node_pk }}",
     )
-
-    add_job
-
 
 if __name__ == "__main__":
     from aiida import load_profile

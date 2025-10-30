@@ -8,11 +8,7 @@
 ###########################################################################
 """`CalcJob` implementation to add two numbers using bash for testing and demonstration purposes."""
 from __future__ import annotations
-from aiida import orm
-from aiida.common.datastructures import CalcInfo, CodeInfo
-from aiida.common.folders import Folder
-from airflow_provider_aiida.taskgroups.calcjob import CalcJobTaskGroup
-from aiida.engine.processes.calcjobs.calcjob import CalcJob
+from airflow_provider_aiida.taskgroups.process import ProcessTaskGroup 
 from aiida.calculations.arithmetic.add import ArithmeticAddCalculation
 
 from airflow import DAG
@@ -25,7 +21,7 @@ with DAG(
     },
     render_template_as_native_obj = True
 ) as dag:
-    add_job = CalcJobTaskGroup(
+    add_job = ProcessTaskGroup(
         process_class=ArithmeticAddCalculation,
         node_pk="{{ params.node_pk }}",
     )
