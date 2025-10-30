@@ -93,8 +93,7 @@ class Runner:
     def instantiate_process(self, process, **inputs):
         return utils.instantiate_process(self, process, **inputs)
 
-    @classmethod
-    def submit(cls, process, inputs: dict[str, Any] | None = None, **kwargs: Any):
+    def submit(self, process, inputs: dict[str, Any] | None = None, **kwargs: Any):
         """Submit the process with the supplied inputs to this runner immediately returning control to the interpreter.
 
         The return value will be the calculation node of the submitted process
@@ -107,7 +106,7 @@ class Runner:
         #assert not self._closed
 
         inputs = utils.prepare_inputs(inputs, **kwargs)
-        process_inited = cls.instantiate_process(process, **inputs)
+        process_inited = self.instantiate_process(process, **inputs)
 
         if not process_inited.metadata.store_provenance:
             raise exceptions.InvalidOperation('cannot submit a process with `store_provenance=False`')
@@ -118,7 +117,7 @@ class Runner:
         #if self._broker_submit:
         #assert self.persister is not None, 'runner does not have a persister'
         #assert self.controller is not None, 'runner does not have a controller'
-        cls._instance._persister.save_checkpoint(process_inited)
+        self.persister.save_checkpoint(process_inited)
         #process_inited.close()
         if True:
             from airflow.api.client import get_current_api_client
@@ -178,7 +177,6 @@ class Runner:
         else:
             self._loop.call_later(self._poll_interval, self._poll_process, node, callback)
 
-    @classmethod
     @property
     def loop(cls) -> asyncio.AbstractEventLoop:
         """Get the event loop of this runner."""
@@ -188,7 +186,6 @@ class Runner:
     def transport(self) -> TransportQueue:
         return self._transport_queue
 
-    @classmethod
     @property
     def persister(cls): # TODO -> Optional[Persister]:
         """Get the persister used by this runner."""
