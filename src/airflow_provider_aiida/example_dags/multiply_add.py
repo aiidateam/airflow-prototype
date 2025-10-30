@@ -1,8 +1,5 @@
-from __future__ import annotations
-
 from airflow_provider_aiida.taskgroups.process import ProcessTaskGroup 
 from aiida.workflows.arithmetic.multiply_add import MultiplyAddWorkChain 
-
 
 from airflow import DAG
 from airflow.models.param import Param
