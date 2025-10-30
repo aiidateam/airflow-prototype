@@ -47,22 +47,11 @@ def submit(
     if is_process_scoped() and not isinstance(Process.current(), FunctionProcess):
         raise InvalidOperation('Cannot use top-level `submit` from within another process, use `self.submit` instead')
 
-    #runner = manager.get_manager().get_runner()
     runner = Runner.get_instance()
-
-    #if runner.controller is None:
-    #    raise InvalidOperation(
-    #        'Cannot submit because the runner does not have a process controller, probably because the profile does '
-    #        'not define a broker like RabbitMQ. If a RabbitMQ server is available, the profile can be configured to '
-    #        'use it with `verdi profile configure-rabbitmq`. Otherwise, use :meth:`aiida.engine.launch.run` instead to '
-    #        'run the process in the local Python interpreter instead of submitting it to the daemon. '
-    #        f'See {URL_NO_BROKER} for more details.'
-    #    )
 
     assert runner.persister is not None, 'runner does not have a persister'
 
     process_inited = instantiate_process(runner, process, **inputs)
-    #process._save_checkpoint()
 
 
 
@@ -76,9 +65,7 @@ def submit(
     if not process_inited.metadata.store_provenance:
         raise InvalidOperation('cannot submit a process with `store_provenance=False`')
 
-    from aiida.engine.persistence import AiiDAPersister
-    persister = AiiDAPersister()
-    persister.save_checkpoint(process_inited)
+    runner.persister.save_checkpoint(process_inited)
     process_inited.close()
     node = process_inited.node
 
@@ -116,3 +103,36 @@ def run_get_node(
         runner = Runner.get_instance()
 
     return runner.run_get_node(process, inputs, **kwargs)
+
+
+def create(process: TYPE_RUN_PROCESS, inputs: dict[str, t.Any] | None = None, **kwargs: t.Any,
+) -> ProcessNode:
+
+    inputs = prepare_inputs(inputs, **kwargs)
+
+    # Submitting from within another process requires ``self.submit``` unless it is a work function, in which case the
+    # current process in the scope should be an instance of ``FunctionProcess``.
+    if is_process_scoped() and not isinstance(Process.current(), FunctionProcess):
+        raise InvalidOperation('Cannot use top-level `submit` from within another process, use `self.submit` instead')
+
+    runner = Runner.get_instance()
+
+    assert runner.persister is not None, 'runner does not have a persister'
+
+    process_inited = instantiate_process(runner, process, **inputs)
+
+
+
+    # If a dry run is requested, simply forward to `run`, because it is not compatible with `submit`. We choose for this
+    # instead of raising, because in this way the user does not have to change the launcher when testing. The same goes
+    # for if `remote_folder` is present in the inputs, which means we are importing an already completed calculation.
+    if process_inited.metadata.get('dry_run', False) or 'remote_folder' in inputs:
+        _, node = run_get_node(process_inited)
+        return node
+
+    if not process_inited.metadata.store_provenance:
+        raise InvalidOperation('cannot submit a process with `store_provenance=False`')
+
+    runner.persister.save_checkpoint(process_inited)
+    process_inited.close()
+    return process_inited.node

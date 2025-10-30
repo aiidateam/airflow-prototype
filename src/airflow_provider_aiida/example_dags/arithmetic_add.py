@@ -21,24 +21,22 @@ with DAG(
     },
     render_template_as_native_obj = True
 ) as dag:
-    add_job = ProcessTaskGroup(
+    ProcessTaskGroup(
         process_class=ArithmeticAddCalculation,
         node_pk="{{ params.node_pk }}",
     )
 
-    add_job
-
 
 if __name__ == "__main__":
+
+    # Create Process
+    from airflow_provider_aiida.aiida_core.engine.launch import create
+    from aiida.calculations.arithmetic.add import ArithmeticAddCalculation
     from aiida import load_profile
+    from aiida.orm import load_code, Int
+
     load_profile()
 
-    print("=" * 60)
-    print("Testing arithmetic_aiida_native_single DAG")
-    print("=" * 60)
-
-    # Test the DAG with default parameters
-    from aiida.orm import load_code, Int
     code = load_code('bash@localhost')
     inputs = {
         'code': code,
@@ -46,18 +44,18 @@ if __name__ == "__main__":
         'y': Int(1),
         #'metadata': {'options': {'sleep': 5}} 
     }
-    
+
+    # TODO Does not work yet
+    #node = create(ArithmeticAddCalculation, inputs)
+
     process = ArithmeticAddCalculation(inputs=inputs)
-    # For creating pesistence checkpoints and other database related actions
     process._save_checkpoint()
+    node = process.node
+
 
     dag.test(
         run_conf={
-            #"x": 8,
-            #"y": 4,
-            #"metadata": {"options": {"sleep": 0}},
-            #"code": "bash@localhost"
-            "node_pk": process.node.pk
+            "node_pk": node.pk
         }
     )
 

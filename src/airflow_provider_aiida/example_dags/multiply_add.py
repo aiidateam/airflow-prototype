@@ -20,15 +20,12 @@ with DAG(
     )
 
 if __name__ == "__main__":
+    from airflow_provider_aiida.aiida_core.engine.launch import create
     from aiida import load_profile
+    from aiida.orm import load_code, Int
+
     load_profile()
 
-    print("=" * 60)
-    print("Testing arithmetic_aiida_native_single DAG")
-    print("=" * 60)
-
-    # Test the DAG with default parameters
-    from aiida.orm import load_code, Int
     code = load_code('bash@localhost')
     inputs = {
         'code': code,
@@ -37,16 +34,15 @@ if __name__ == "__main__":
         'z': Int(2),
     }
     
+    # TODO Does not work yet
+    #node = create(MultiplyAddWorkChain, inputs)
+
     process = MultiplyAddWorkChain(inputs=inputs)
-    # For creating pesistence checkpoints and other database related actions
     process._save_checkpoint()
+    node = process.node
 
     dag.test(
         run_conf={
-            "node_pk": process.node.pk
+            "node_pk": node.pk
         }
     )
-
-    print("\n" + "=" * 60)
-    print("DAG test completed!")
-    print("=" * 60)

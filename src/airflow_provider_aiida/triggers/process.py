@@ -9,8 +9,6 @@ from typing import Any, AsyncIterator
 
 from airflow.triggers.base import BaseTrigger, TriggerEvent
 
-from aiida.engine.utils import InterruptableFuture
-from aiida.orm import load_node
 from airflow_provider_aiida.aiida_core.engine.runner import Runner
 
 logger = logging.getLogger(__name__)
