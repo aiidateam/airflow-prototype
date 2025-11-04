@@ -12,9 +12,12 @@ from aiida.engine.processes.calcjobs import manager
 from aiida.orm import ProcessNode 
 from aiida.common import exceptions
 from aiida.engine.processes import Process, ProcessBuilder
+from plumpy.persistence import Persister
 
 
 _LOGGER = logging.getLogger(__name__)
+# TODO remove after prototype phase
+logging.basicConfig(level=logging.DEBUG)
 
 TYPE_RUN_PROCESS = Union[Process, Type[Process], ProcessBuilder]
 
@@ -32,57 +35,77 @@ class Runner:
 
     _instance: Optional['Runner'] = None
 
-    def __new__(cls, loop: Optional[asyncio.AbstractEventLoop]):
+    def __new__(cls):
         """Create or return the single Runner instance."""
         if cls._instance is None:
-            _LOGGER.info("Creating singleton Runner instance")
             instance = super().__new__(cls)
 
-            if loop is None:
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    # No running loop - create a new one
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop - create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
+            from airflow.configuration import conf
+            sql_conn = conf.get('database', 'sql_alchemy_conn', fallback='NOT SET')
+            _LOGGER.debug(f"SQL connection: {sql_conn if sql_conn != 'NOT SET' else 'NOT SET'}")
             instance._loop = loop
-            # TODO rename to transport because this is how it is named in aiida runner
-            instance._transport_queue = TransportQueue(loop=loop)
+            instance._poll_interval = 0
+            # NOTE: A triggerer set the sql connection variable to "airflow-db-not-allowed:///"
+            #       while in a test run this is set to a poper sql connection
+            instance._broker_submit = True #sql_conn == "airflow-db-not-allowed:///"
+            instance._transport = TransportQueue(instance._loop)
+            instance._job_manager = manager.JobManager(instance._transport)
             instance._persister = AiiDAPersister()
-            instance._job_manager = manager.JobManager(instance._transport_queue)
             instance._plugin_version_provider = PluginVersionProvider()
-            # TODO this should not be hardcoded
-            instance._poll_interval = 1
-
+            instance._communicator = None
+            instance._controller = None
 
             cls._instance = instance
             _LOGGER.debug(f"Runner initialized with event loop {id(loop)}")
 
         return cls._instance
 
-    def __init__(self, loop: Optional[asyncio.AbstractEventLoop]):
-        """Initialize is a no-op since __new__ handles everything."""
+    def __init__(self):
         pass
+
+    @classmethod
+    def get_instance(cls) -> 'Runner':
+        """Get the singleton Runner instance."""
+        return cls()
+
+    @property
+    def loop(self) -> asyncio.AbstractEventLoop:
+        """Get the event loop of this runner."""
+        return self._loop
+
+    @property
+    def transport(self) -> TransportQueue:
+        return self._transport
+
+    @property
+    def persister(self) -> Optional[Persister]:
+        """Get the persister used by this runner."""
+        return self._persister
+
+    @property
+    def communicator(self) -> None:
+        """Get the communicator used by this runner."""
+        return None
+
+    @property
+    def plugin_version_provider(self) -> PluginVersionProvider:
+        return self._plugin_version_provider
 
     @property
     def job_manager(self) -> manager.JobManager:
         return self._job_manager
 
     @property
-    def transport_queue(self) -> TransportQueue:
-        """Get the shared TransportQueue."""
-        return self._transport_queue
-
-    @property
-    def loop(self) -> asyncio.AbstractEventLoop:
-        """Get the event loop."""
-        return self._loop
-
-    @classmethod
-    def get_instance(cls, loop: Optional[asyncio.AbstractEventLoop] = None) -> 'Runner':
-        """Get the singleton Runner instance."""
-        return cls(loop=loop)
+    def controller(self) -> None:
+        """Get the controller used by this runner."""
+        return None
 
     @classmethod
     def clear(cls):
@@ -114,26 +137,69 @@ class Runner:
         if process_inited.metadata.get('dry_run', False):
             raise exceptions.InvalidOperation('cannot submit a process from within another with `dry_run=True`')
 
-        #if self._broker_submit:
-        #assert self.persister is not None, 'runner does not have a persister'
-        #assert self.controller is not None, 'runner does not have a controller'
         self.persister.save_checkpoint(process_inited)
-        #process_inited.close()
-        if True:
-            from airflow.api.client import get_current_api_client
-            client = get_current_api_client()
+        process_inited_dag_id = process_inited.__class__.__name__ # TODO .build_process_type().replace(":", "-")
+
+        if self._broker_submit:
+
+            import subprocess
+            import sys
+            code_snippet = f"""
+import os
+import sys
+
+# Debug: Print environment info
+print(f"AIRFLOW_HOME: {{os.environ.get('AIRFLOW_HOME', 'NOT SET')}}", file=sys.stdout)
+print(f"Working dir: {{os.getcwd()}}", file=sys.stdout)
+print(f"Python: {{sys.executable}}", file=sys.stdout)
+
+# Check what SQL connection Airflow is trying to use
+from airflow.configuration import conf
+sql_conn = conf.get('database', 'sql_alchemy_conn', fallback='NOT SET')
+print(f"SQL connection: {{sql_conn if sql_conn != 'NOT SET' else 'NOT SET'}}", file=sys.stderr)
+
+from airflow.api.client import get_current_api_client
+client = get_current_api_client()
 
 # Trigger the DAG run
-            client.trigger_dag(
-                dag_id=process_inited.__class__.__name__,
-                conf={'node_pk': process_inited.pid}
+client.trigger_dag(
+    dag_id='{process_inited_dag_id}',
+    conf={{'node_pk': {process_inited.pid}}}
+)
+"""
+            from pathlib import Path
+            import os
+            import tempfile
+
+            # Create a temporary file for the trigger script
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                _LOGGER.info(f"Creating temporary file in {f.name}")
+                f.write(code_snippet)
+                code_py = Path(f.name)
+
+            # Call the trigger script via subprocess
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(code_py),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={}, # NOTE: the triggerer has enviroment variables that clash with triggering api
+                cwd=os.getcwd()
             )
 
-            #self.controller.continue_process(process_inited.pid)
-            #else:
-            #    self.loop.create_task(process_inited.step_until_terminated())
+            stdout, stderr = proc.communicate()
+            if stdout:
+                _LOGGER.debug(f"DAG trigger {process_inited_dag_id} output: {stdout}")
+            if proc.returncode != 0:
+                _LOGGER.error(f"DAG trigger {process_inited_dag_id} failed with return code {proc.returncode}")
+            if stderr:
+                _LOGGER.error(f"DAG trigger {process_inited_dag_id} error: {stderr}")
+
         else:
-            cls._instance.loop.create_task(process_inited.step_until_terminated())
+            self.loop.create_task(process_inited.step_until_terminated())
         return process_inited.node
 
     def call_on_process_finish(self, pk: int, callback: Callable[[], Any]) -> None:
@@ -172,32 +238,10 @@ class Runner:
         """
         if node.is_terminated:
             args = [node.__class__.__name__, node.pk]
-            #LOGGER.info('%s<%d> confirmed to be terminated by backup polling mechanism', *args)
+            _LOGGER.info('%s<%d> confirmed to be terminated by backup polling mechanism', *args)
             self._loop.call_soon(callback)
         else:
             self._loop.call_later(self._poll_interval, self._poll_process, node, callback)
-
-    @property
-    def loop(cls) -> asyncio.AbstractEventLoop:
-        """Get the event loop of this runner."""
-        return cls._instance._loop
-
-    @property
-    def transport(self) -> TransportQueue:
-        return self._transport_queue
-
-    @property
-    def persister(cls): # TODO -> Optional[Persister]:
-        """Get the persister used by this runner."""
-        return cls._instance._persister
-
-    @property
-    def communicator(self): # TODO -> Optional[Persister]:
-        return None
-
-    @property
-    def plugin_version_provider(self) -> PluginVersionProvider:
-        return self._instance._plugin_version_provider
 
     def _run(
         self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any
