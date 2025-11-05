@@ -42,6 +42,7 @@ provider_info = "airflow_provider_aiida.__init__:get_provider_info"
 
 [project.entry-points."aiida.dags"]
 aiida-standard = "airflow_provider_aiida.example_dags"
+aiida-auto = "airflow_provider_aiida.auto_generated_dags"
 
 [tool.hatch.version]
 path = "src/airflow_provider_aiida/__init__.py"
