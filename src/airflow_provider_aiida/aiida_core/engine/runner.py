@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import signal
+
 from typing import Optional, Any, Callable, NamedTuple, Dict, Tuple, Union, Type
 from aiida.engine.persistence import AiiDAPersister
 from aiida.engine.transports import TransportQueue
@@ -17,7 +18,7 @@ from plumpy.persistence import Persister
 
 _LOGGER = logging.getLogger(__name__)
 # TODO remove after prototype phase
-logging.basicConfig(level=logging.DEBUG)
+_LOGGER.level = logging.DEBUG
 
 TYPE_RUN_PROCESS = Union[Process, Type[Process], ProcessBuilder]
 
@@ -54,7 +55,12 @@ class Runner:
             instance._poll_interval = 0
             # NOTE: A triggerer set the sql connection variable to "airflow-db-not-allowed:///"
             #       while in a test run this is set to a poper sql connection
-            instance._broker_submit = True #sql_conn == "airflow-db-not-allowed:///"
+            # TODO it is not straighforward to figure out if we are running in an airflow 
+            #      test run environment or trigger. The check for 
+            #      sql_conn == "airflow-db-not-allowed:///"
+            #      does not work because the trigger also sets it to this and we fork in the trigger
+            #      Temporary solution is to set it always to True
+            instance._broker_submit = True
             instance._transport = TransportQueue(instance._loop)
             instance._job_manager = manager.JobManager(instance._transport)
             instance._persister = AiiDAPersister()
@@ -106,12 +112,6 @@ class Runner:
     def controller(self) -> None:
         """Get the controller used by this runner."""
         return None
-
-    @classmethod
-    def clear(cls):
-        """Clear the singleton instance (useful for testing)."""
-        cls._instance = None
-        _LOGGER.debug("Cleared Runner singleton")
 
     def instantiate_process(self, process, **inputs):
         return utils.instantiate_process(self, process, **inputs)
@@ -173,7 +173,7 @@ client.trigger_dag(
 
             # Create a temporary file for the trigger script
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-                _LOGGER.info(f"Creating temporary file in {f.name}")
+                _LOGGER.debug(f"Creating temporary file in {f.name}")
                 f.write(code_snippet)
                 code_py = Path(f.name)
 
