@@ -80,3 +80,14 @@ exclude = [
     "*tests.*",
     "*tests"
 ]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # AiiDA SQLAlchemy warnings - these are expected and safe to ignore as done in aiida-core
+    "ignore:Object of type .* not in session, .* operation along .* will not proceed:sqlalchemy.exc.SAWarning",
+    "ignore:Identity map already had an identity for .* inside of an event handler within the flush?:sqlalchemy.exc.SAWarning",
+    # AiiDA configuration warnings in test environments
+    "ignore:Creating AiiDA configuration folder.*:UserWarning",
+    # Airflow deprecation warnings
+    "ignore:'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated.*:DeprecationWarning",
+]
