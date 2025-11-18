@@ -1,4 +1,4 @@
-from airflow_provider_aiida.aiida_core.engine.runner import Runner
+from airflow_provider_aiida.aiida_core.engine.runner import AirflowRunner
 from aiida.engine.utils import instantiate_process, is_process_scoped, prepare_inputs
 from aiida.engine.processes.functions import FunctionProcess
 from aiida.engine.processes.process import Process
@@ -11,6 +11,10 @@ import time
 import typing as t
 
 from airflow.api.client import get_current_api_client
+
+if t.TYPE_CHECKING:
+    from aiida.engine.runners import ResultAndPk
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -47,13 +51,11 @@ def submit(
     if is_process_scoped() and not isinstance(Process.current(), FunctionProcess):
         raise InvalidOperation('Cannot use top-level `submit` from within another process, use `self.submit` instead')
 
-    runner = Runner.get_instance()
+    runner = AirflowRunner(broker_submit=True)
 
     assert runner.persister is not None, 'runner does not have a persister'
 
     process_inited = instantiate_process(runner, process, **inputs)
-
-
 
     # If a dry run is requested, simply forward to `run`, because it is not compatible with `submit`. We choose for this
     # instead of raising, because in this way the user does not have to change the launcher when testing. The same goes
@@ -87,6 +89,11 @@ def submit(
 
     return node
 
+def run(process: TYPE_RUN_PROCESS, inputs: dict[str, t.Any] | None = None, **kwargs: t.Any) -> dict[str, t.Any]:
+    raise NotImplementedError()
+
+def run_get_pk(process: TYPE_RUN_PROCESS, inputs: dict[str, t.Any] | None = None, **kwargs: t.Any) -> 'ResultAndPk':
+    raise NotImplementedError()
 
 def run_get_node(
     process: TYPE_RUN_PROCESS, inputs: dict[str, t.Any] | None = None, **kwargs: t.Any
@@ -98,41 +105,15 @@ def run_get_node(
     :return: tuple of the outputs of the process and the process node
     """
     if isinstance(process, Process):
-        runner = process.runner
+        if process.runner is None:
+            process.runner = AirflowRunner(broker_submit=False)
+            runner = process.runner
+        else:
+            runner = process.runner
+            # this case is to give a proper error message for backwards usage
+            assert isinstance(runner, AirflowRunner)
+            assert not runner.broker_submit
     else:
-        runner = Runner.get_instance()
+        runner = AirflowRunner(broker_submit=False)
 
     return runner.run_get_node(process, inputs, **kwargs)
-
-
-def create(process: TYPE_RUN_PROCESS, inputs: dict[str, t.Any] | None = None, **kwargs: t.Any,
-) -> ProcessNode:
-
-    inputs = prepare_inputs(inputs, **kwargs)
-
-    # Submitting from within another process requires ``self.submit``` unless it is a work function, in which case the
-    # current process in the scope should be an instance of ``FunctionProcess``.
-    if is_process_scoped() and not isinstance(Process.current(), FunctionProcess):
-        raise InvalidOperation('Cannot use top-level `submit` from within another process, use `self.submit` instead')
-
-    runner = Runner.get_instance()
-
-    assert runner.persister is not None, 'runner does not have a persister'
-
-    process_inited = instantiate_process(runner, process, **inputs)
-
-
-
-    # If a dry run is requested, simply forward to `run`, because it is not compatible with `submit`. We choose for this
-    # instead of raising, because in this way the user does not have to change the launcher when testing. The same goes
-    # for if `remote_folder` is present in the inputs, which means we are importing an already completed calculation.
-    if process_inited.metadata.get('dry_run', False) or 'remote_folder' in inputs:
-        _, node = run_get_node(process_inited)
-        return node
-
-    if not process_inited.metadata.store_provenance:
-        raise InvalidOperation('cannot submit a process with `store_provenance=False`')
-
-    runner.persister.save_checkpoint(process_inited)
-    process_inited.close()
-    return process_inited.node

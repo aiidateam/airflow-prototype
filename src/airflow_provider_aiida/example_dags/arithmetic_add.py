@@ -19,8 +19,7 @@ with DAG(
 
 if __name__ == "__main__":
 
-    # Create Process
-    from airflow_provider_aiida.aiida_core.engine.launch import create
+    from airflow_provider_aiida.aiida_core.engine.launch import run_get_node
     from aiida.calculations.arithmetic.add import ArithmeticAddCalculation
     from aiida import load_profile
     from aiida.orm import load_code, Int
@@ -34,21 +33,6 @@ if __name__ == "__main__":
         'y': Int(1),
         #'metadata': {'options': {'sleep': 5}} 
     }
+    result, node = run_get_node(ArithmeticAddCalculation, inputs)
+    print(result, node)
 
-    # TODO Does not work yet
-    #node = create(ArithmeticAddCalculation, inputs)
-
-    process = ArithmeticAddCalculation(inputs=inputs)
-    process._save_checkpoint()
-    node = process.node
-
-
-    dag.test(
-        run_conf={
-            "node_pk": node.pk
-        }
-    )
-
-    print("\n" + "=" * 60)
-    print("DAG test completed!")
-    print("=" * 60)
