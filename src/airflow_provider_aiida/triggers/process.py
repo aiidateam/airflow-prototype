@@ -5,24 +5,39 @@ allowing CalcJob operations to be performed asynchronously in the Airflow trigge
 """
 
 import logging
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, TYPE_CHECKING
 
 from airflow.triggers.base import BaseTrigger, TriggerEvent
 
-from airflow_provider_aiida.aiida_core.engine.runner import Runner
+from airflow_provider_aiida.aiida_core.engine.runner import AirflowRunner
+
+if TYPE_CHECKING:
+    from asyncio import AbstractEventLoop
 
 logger = logging.getLogger(__name__)
+
+
+def get_current_event_loop() -> 'AbstractEventLoop':
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop - create a new one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop
+
 
 def load_process(node_pk: int):
     """reenters same state"""
     from aiida import load_profile
     load_profile()
-    from aiida.engine import persistence
     from plumpy.persistence import LoadSaveContext
-    persister = persistence.AiiDAPersister()
-    saved_state = persister.load_checkpoint(node_pk)
+    loop = get_current_event_loop()
+    runner = AirflowRunner(loop=loop)
+    saved_state = runner.persister.load_checkpoint(node_pk)
     proc = saved_state.unbundle(LoadSaveContext())
-    proc._runner = Runner.get_instance()
+    proc._runner = runner
     return proc
 
 

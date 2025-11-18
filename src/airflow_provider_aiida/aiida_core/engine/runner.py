@@ -3,16 +3,22 @@
 import asyncio
 import logging
 import signal
-from typing import Optional, Any, Callable, NamedTuple, Dict, Tuple, Union, Type
+from typing import Optional, Any, Callable, Dict, Tuple, Union, Type
+
 from aiida.engine.persistence import AiiDAPersister
 from aiida.engine.transports import TransportQueue
+from aiida.engine.runners import Runner
 from aiida.engine import utils
 from aiida.plugins.utils import PluginVersionProvider
 from aiida.engine.processes.calcjobs import manager
 from aiida.orm import ProcessNode 
 from aiida.common import exceptions
 from aiida.engine.processes import Process, ProcessBuilder
+from aiida.engine.runners import Runner, ResultAndNode
+
 from plumpy.persistence import Persister
+from plumpy.events import set_event_loop_policy
+
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -21,11 +27,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 TYPE_RUN_PROCESS = Union[Process, Type[Process], ProcessBuilder]
 
-class ResultAndNode(NamedTuple):
-    result: Dict[str, Any]
-    node: ProcessNode
 
-class Runner:
+class AirflowRunner(Runner):
     """Singleton runner that owns the TransportQueue for the triggerer process.
 
     Since each triggerer has only one event loop, we only need one Runner instance
@@ -33,47 +36,67 @@ class Runner:
     triggers running in the same triggerer.
     """
 
-    _instance: Optional['Runner'] = None
+    _persister: Optional[Persister] = None
 
-    def __new__(cls):
-        """Create or return the single Runner instance."""
-        if cls._instance is None:
-            instance = super().__new__(cls)
+    def __init__(
+        self,
+        poll_interval: Union[int, float] = 0,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
+        broker_submit = False,
+    ):
+        """Construct a new runner.
 
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                # No running loop - create a new one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+        :param poll_interval: interval in seconds between polling for status of active sub processes
+        :param loop: an asyncio event loop, if none is suppled a new one will be created
+        :param communicator: the communicator to use
+        :param broker_submit: if True, processes will be submitted to the broker, otherwise they will be scheduled here
+        :param persister: the persister to use to persist processes
 
-            from airflow.configuration import conf
-            sql_conn = conf.get('database', 'sql_alchemy_conn', fallback='NOT SET')
-            _LOGGER.debug(f"SQL connection: {sql_conn if sql_conn != 'NOT SET' else 'NOT SET'}")
-            instance._loop = loop
-            instance._poll_interval = 0
-            # NOTE: A triggerer set the sql connection variable to "airflow-db-not-allowed:///"
-            #       while in a test run this is set to a poper sql connection
-            instance._broker_submit = True #sql_conn == "airflow-db-not-allowed:///"
-            instance._transport = TransportQueue(instance._loop)
-            instance._job_manager = manager.JobManager(instance._transport)
-            instance._persister = AiiDAPersister()
-            instance._plugin_version_provider = PluginVersionProvider()
-            instance._communicator = None
-            instance._controller = None
+        """
+        set_event_loop_policy()
+        self._loop = loop if loop is not None else asyncio.get_event_loop()
+        self._poll_interval = poll_interval
+        self._transport = TransportQueue(self._loop)
+        self._job_manager = manager.JobManager(self._transport)
+        self._persister = AiiDAPersister()
+        self._plugin_version_provider = PluginVersionProvider()
 
-            cls._instance = instance
-            _LOGGER.debug(f"Runner initialized with event loop {id(loop)}")
+        self._broker_submit = broker_submit
 
-        return cls._instance
 
-    def __init__(self):
-        pass
+    def _run(
+        self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any
+    ) -> Tuple[Dict[str, Any], ProcessNode]:
+        """Run the process with the supplied inputs in this runner that will block until the process is completed.
 
-    @classmethod
-    def get_instance(cls) -> 'Runner':
-        """Get the singleton Runner instance."""
-        return cls()
+        The return value will be the results of the completed process
+
+        :param process: the process class or process function to run
+        :param inputs: the inputs to be passed to the process
+        :return: tuple of the outputs of the process and the calculation node
+        """
+        inputs = utils.prepare_inputs(inputs, **kwargs)
+
+        if utils.is_process_function(process):
+            result, node = process.run_get_node(**inputs)  # type: ignore[union-attr]
+            return result, node
+
+        process_inited = self.instantiate_process(process, **inputs)
+
+        from airflow.models import DagBag
+        dag_id = process.__name__
+        dag = DagBag().get_dag(dag_id)
+
+        if dag is None:
+            raise ValueError(f"Could not find DAG corresponding to process class {dag_id!r}")
+
+        dag.test(
+            run_conf={
+                "node_pk": process_inited.node.pk
+            }
+        )
+        return process_inited.outputs, process_inited.node
+
 
     @property
     def loop(self) -> asyncio.AbstractEventLoop:
@@ -107,12 +130,6 @@ class Runner:
         """Get the controller used by this runner."""
         return None
 
-    @classmethod
-    def clear(cls):
-        """Clear the singleton instance (useful for testing)."""
-        cls._instance = None
-        _LOGGER.debug("Cleared Runner singleton")
-
     def instantiate_process(self, process, **inputs):
         return utils.instantiate_process(self, process, **inputs)
 
@@ -126,7 +143,6 @@ class Runner:
         :return: the calculation node of the process
         """
         assert not utils.is_process_function(process), 'Cannot submit a process function'
-        #assert not self._closed
 
         inputs = utils.prepare_inputs(inputs, **kwargs)
         process_inited = self.instantiate_process(process, **inputs)
@@ -242,71 +258,3 @@ client.trigger_dag(
             self._loop.call_soon(callback)
         else:
             self._loop.call_later(self._poll_interval, self._poll_process, node, callback)
-
-    def _run(
-        self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any
-    ) -> Tuple[Dict[str, Any], ProcessNode]:
-        """Run the process with the supplied inputs in this runner that will block until the process is completed.
-
-        The return value will be the results of the completed process
-
-        :param process: the process class or process function to run
-        :param inputs: the inputs to be passed to the process
-        :return: tuple of the outputs of the process and the calculation node
-        """
-        inputs = utils.prepare_inputs(inputs, **kwargs)
-
-        if utils.is_process_function(process):
-            result, node = process.run_get_node(**inputs)  # type: ignore[union-attr]
-            return result, node
-
-        with utils.loop_scope(self.loop):
-            process_inited = self.instantiate_process(process, **inputs)
-
-            def kill_process(_num, _frame):
-                """Send the kill signal to the process in the current scope."""
-                if process_inited.is_killing:
-                    LOGGER.warning('runner received interrupt, process %s already being killed', process_inited.pid)
-                    return
-                LOGGER.critical('runner received interrupt, killing process %s', process_inited.pid)
-                process_inited.kill(msg_text='Process was killed because the runner received an interrupt')
-
-            original_handler_int = signal.getsignal(signal.SIGINT)
-            original_handler_term = signal.getsignal(signal.SIGTERM)
-
-            try:
-                signal.signal(signal.SIGINT, kill_process)
-                signal.signal(signal.SIGTERM, kill_process)
-                process_inited.execute()
-            finally:
-                signal.signal(signal.SIGINT, original_handler_int)
-                signal.signal(signal.SIGTERM, original_handler_term)
-
-            return process_inited.outputs, process_inited.node
-
-    def run(self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any) -> Dict[str, Any]:
-        """Run the process with the supplied inputs in this runner that will block until the process is completed.
-
-        The return value will be the results of the completed process
-
-        :param process: the process class or process function to run
-        :param inputs: the inputs to be passed to the process
-        :return: the outputs of the process
-        """
-        result, _ = self._run(process, inputs, **kwargs)
-        return result
-
-    def run_get_node(
-        self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any
-    ) -> ResultAndNode:
-        """Run the process with the supplied inputs in this runner that will block until the process is completed.
-
-        The return value will be the results of the completed process
-
-        :param process: the process class or process function to run
-        :param inputs: the inputs to be passed to the process
-        :return: tuple of the outputs of the process and the calculation node
-        """
-        result, node = self._run(process, inputs, **kwargs)
-        return ResultAndNode(result, node)
-

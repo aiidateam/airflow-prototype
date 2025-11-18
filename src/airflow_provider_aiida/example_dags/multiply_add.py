@@ -17,7 +17,7 @@ with DAG(
     )
 
 if __name__ == "__main__":
-    from airflow_provider_aiida.aiida_core.engine.launch import create
+    from airflow_provider_aiida.aiida_core.engine.launch import run_get_node
     from aiida import load_profile
     from aiida.orm import load_code, Int
 
@@ -31,15 +31,5 @@ if __name__ == "__main__":
         'z': Int(2),
     }
     
-    # TODO Does not work yet
-    #node = create(MultiplyAddWorkChain, inputs)
-
-    process = MultiplyAddWorkChain(inputs=inputs)
-    process._save_checkpoint()
-    node = process.node
-
-    dag.test(
-        run_conf={
-            "node_pk": node.pk
-        }
-    )
+    output, node = run_get_node(MultiplyAddWorkChain, inputs)
+    print(output, node)
