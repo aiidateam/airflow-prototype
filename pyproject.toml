@@ -53,21 +53,42 @@ allow-direct-references = true
 python = "3.11"
 
 [tool.hatch.envs.hatch-test]
-default-args = []
+default-args = ["tests"]
+dependencies = [
+    "pytest>=7.0",
+    "pytest-mock>=3.10",
+    # NOTE: these are requirements only needed with psql
+    "psycopg2-binary>=2.9.0",
+    "asyncpg>=0.29.0",
+]
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.11"]
 
-[tool.hatch.envs.test]
-python = "3.11"
-dependencies = [
-    "pytest>=7.0",
-    "pytest-mock>=3.10",
-]
+[tool.hatch.envs.hatch-test.env-vars]
+AIRFLOW_HOME = "{root}/.pytest/airflow"
+AIRFLOW_PROVIDER_AIIDA__POSTGRES_HOST_PORT = "5434"
+AIRFLOW__DATABASE__SQL_ALCHEMY_CONN = "postgresql+psycopg2://airflow:airflow@127.0.0.1:5434/airflow"
+AIRFLOW__CORE__DAGS_FOLDER = "{root}/src/airflow_provider_aiida/example_dags"
+AIRFLOW__CORE__LOAD_EXAMPLES = "False"
+AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS = "False"
+AIRFLOW__DAG_PROCESSOR__DAG_BUNDLE_CONFIG_LIST = '[{{"name":"dags-folder","classpath":"airflow.dag_processing.bundles.local.LocalDagBundle","kwargs":{{}}}},{{"name":"aiida_dags","classpath":"airflow_provider_aiida.bundles.aiida_dag_bundle.AiidaDagBundle","kwargs":{{}}}}]'
 
-[tool.hatch.envs.test.scripts]
-run = "pytest {args:tests}"
-cov = "pytest --cov-report=term-missing --cov=airflow_provider_aiida {args:tests}"
+[tool.hatch.envs.hatch-test.scripts]
+# Start Airflow services (for integration testing)
+scheduler = "airflow scheduler"
+api-server = "airflow api-server"
+triggerer = "airflow triggerer"
+dag-processor = "airflow dag-processor"
+
+# Run integration tests
+integration = "pytest -m integration tests"
+
+# Clean test artifacts
+clean = [
+    "rm -rf .pytest",
+    "echo 'Cleaned .pytest directory'",
+]
 
 [tool.setuptools]
 include-package-data = false
