@@ -7,13 +7,17 @@ from airflow.models.param import Param
 with DAG(
     'MultiplyAddWorkChain',
     params={
-        "node_pk": Param("", type="integer")
+        "process_pk": Param("", type="integer"),
+        "aiida_profile": Param(None, type=["null", "string"]),
+        "aiida_path": Param(None, type=["null", "string"])
     },
     render_template_as_native_obj = True
 ) as dag:
     ProcessTaskGroup(
         process_class=MultiplyAddWorkChain,
-        node_pk="{{ params.node_pk }}",
+        process_pk="{{ params.process_pk }}",
+        aiida_profile="{{ params.aiida_profile }}",
+        aiida_path="{{ params.aiida_path }}",
     )
 
 if __name__ == "__main__":

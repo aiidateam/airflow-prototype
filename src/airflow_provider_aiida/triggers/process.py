@@ -28,14 +28,19 @@ def get_current_event_loop() -> 'AbstractEventLoop':
     return loop
 
 
-def load_process(node_pk: int):
+def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | None):
     """reenters same state"""
+    import os
+    # TODO find a solution that gives understandable error message
+    # NOTE: this conflicts if profiles from different aiida paths are used
+    if aiida_path is not None:
+        os.environ["AIIDA_PATH"] = aiida_path
     from aiida import load_profile
-    load_profile()
+    load_profile(aiida_profile)
     from plumpy.persistence import LoadSaveContext
     loop = get_current_event_loop()
     runner = AirflowRunner(loop=loop)
-    saved_state = runner.persister.load_checkpoint(node_pk)
+    saved_state = runner.persister.load_checkpoint(process_pk)
     proc = saved_state.unbundle(LoadSaveContext())
     proc._runner = runner
     return proc
@@ -44,25 +49,32 @@ def load_process(node_pk: int):
 class ProcStepUntilTerminatedTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_upload_job function."""
 
-    def __init__(self, node_pk: int):
+    def __init__(self, process_pk: int,
+                 aiida_profile: str | None,
+                 aiida_path: str | None):
         """Initialize the upload trigger.
 
-        :param node_pk: Primary key of the CalcJobNode to upload
+        :param process_pk: Primary key of the CalcJobNode to upload
         """
         super().__init__()
-        self.node_pk = node_pk
+        self.process_pk = process_pk
+        self.aiida_profile = aiida_profile
+        self.aiida_path = aiida_path
 
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize the trigger for persistence."""
         return (
             "airflow_provider_aiida.triggers.process.ProcStepUntilTerminatedTrigger",
-            {"node_pk": self.node_pk},
+            {"process_pk": self.process_pk,
+            "aiida_profile": self.aiida_profile,
+            "aiida_path": self.aiida_path,
+            },
         )
 
     async def run(self) -> AsyncIterator[TriggerEvent]:
         """Execute the upload task."""
         try:
-            proc = load_process(self.node_pk)
+            proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path)
             await proc.step_until_terminated()
             result = proc.future().result()
 
@@ -72,6 +84,6 @@ class ProcStepUntilTerminatedTrigger(BaseTrigger):
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
-            logger.exception(f"Step until terminated task failed for node {self.node_pk}")
+            logger.exception(f"Step until terminated task failed for node {self.process_pk}")
             yield TriggerEvent({"status": "error", "message": str(e), "traceback": tb})
 

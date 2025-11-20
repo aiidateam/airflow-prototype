@@ -1,1 +1,3 @@
-pytest_plugins = ["aiida.tools.pytest_fixtures"]
+from aiida import load_profile
+
+load_profile()
