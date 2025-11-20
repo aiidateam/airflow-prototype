@@ -25,7 +25,9 @@ class ProcessTaskGroup(TaskGroup):
     def __init__(
         self,
         process_class,
-        node_pk: int
+        process_pk: int,
+        aiida_profile: str | None,
+        aiida_path: str | None,
     ):
         """Initialize the AiiDA CalcJob TaskGroup.
 
@@ -33,13 +35,17 @@ class ProcessTaskGroup(TaskGroup):
         """
         super().__init__(group_id=process_class.__name__)
         self.process_class = process_class
-        self.node_pk = node_pk
+        self.process_pk = process_pk
+        self.aiida_profile = aiida_profile
+        self.aiida_path = aiida_path
         self._build_tasks()
 
     def _build_tasks(self):
         ProcStepUntilTerminatedOperator(
             task_id="step_until_terminate",
-            node_pk=self.node_pk,
+            process_pk=self.process_pk,
+            aiida_profile=self.aiida_profile,
+            aiida_path=self.aiida_path,
             task_group=self,
         )
 

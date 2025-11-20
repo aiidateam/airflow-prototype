@@ -15,6 +15,7 @@ from aiida.orm import ProcessNode
 from aiida.common import exceptions
 from aiida.engine.processes import Process, ProcessBuilder
 from aiida.engine.runners import Runner, ResultAndNode
+from aiida.common.exceptions import ConfigurationError
 
 from plumpy.persistence import Persister
 from plumpy.events import set_event_loop_policy
@@ -90,10 +91,23 @@ class AirflowRunner(Runner):
         if dag is None:
             raise ValueError(f"Could not find DAG corresponding to process class {dag_id!r}")
 
+        from aiida import get_profile
+
+        try:
+            aiida_profile = get_profile()
+        except ConfigurationError:
+            from aiida import load_profile
+            aiida_profile = load_profile()
+
+        import os
+        aiida_path = os.getenv("AIIDA_PATH", None)
+        conf = {"process_pk": process_inited.node.pk,
+                "aiida_profile": aiida_profile.name,
+                "aiida_path": aiida_path
+                }
+
         dag.test(
-            run_conf={
-                "node_pk": process_inited.node.pk
-            }
+            run_conf=conf
         )
         return process_inited.outputs, process_inited.node
 
@@ -157,9 +171,21 @@ class AirflowRunner(Runner):
         process_inited_dag_id = process_inited.__class__.__name__ # TODO .build_process_type().replace(":", "-")
 
         if self._broker_submit:
+            from aiida import get_profile
+            from aiida.common.exceptions import ConfigurationError
+
+            try:
+                aiida_profile = get_profile()
+            except ConfigurationError:
+                from aiida import load_profile
+                aiida_profile = load_profile()
+
+            import os
+            aiida_path = os.getenv("AIIDA_PATH", None)
 
             import subprocess
             import sys
+            # TODO we need to pass the environ from the operator
             code_snippet = f"""
 import os
 import sys
@@ -174,13 +200,26 @@ from airflow.configuration import conf
 sql_conn = conf.get('database', 'sql_alchemy_conn', fallback='NOT SET')
 print(f"SQL connection: {{sql_conn if sql_conn != 'NOT SET' else 'NOT SET'}}", file=sys.stderr)
 
-from airflow.api.client import get_current_api_client
-client = get_current_api_client()
+# NOTE: Raises error when not successfull, the typehint None is a bit confusing, it should not happen 
+from airflow.api.common import trigger_dag
+trigger_dag.trigger_dag(
+    dag_id=dag_id,
+    triggered_by=DagRunTriggeredByType.CLI,
+    run_id=None,
+    conf=conf,
+    logical_date=None,
+    replace_microseconds=True,
+)
+
+
 
 # Trigger the DAG run
 client.trigger_dag(
     dag_id='{process_inited_dag_id}',
-    conf={{'node_pk': {process_inited.pid}}}
+    conf={{'process_pk': {process_inited.pid},
+           'aiida_profile': {aiida_profile!r},
+           'aiida_path': {aiida_path!r}
+    }}
 )
 """
             from pathlib import Path

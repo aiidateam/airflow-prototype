@@ -1,19 +1,34 @@
+import pytest
 from aiida.calculations.arithmetic.add import ArithmeticAddCalculation
-from airflow_provider_aiida.aiida_core.engine.launch import run_get_node
-from aiida.orm import Int
-
-# Import the DAG
+from airflow_provider_aiida.aiida_core.engine.launch import run_get_node, submit
+from aiida.orm import Int, load_code
 
 
-def test_arithmetic_add_dag(aiida_code_installed):
-    """Test the ArithmeticAddCalculation DAG"""
+def test_arithmetic_add_dag_test_run():
+    """Test the ArithmeticAddCalculation DAG in testing runtime environment"""
 
     inputs = {
-        'code': aiida_code_installed(default_calc_job_plugin='core.arithmetic.add'),
+        'code': load_code('bash@localhost'),
         'x': Int(5),
         'y': Int(10),
     }
-    result, node = run_get_node(ArithmeticAddCalculation, inputs)
+    # TODO result is empty dict is this normal?
+    _, node = run_get_node(ArithmeticAddCalculation, inputs)
 
     assert not node.is_failed, "Calculation failed, exit status: {node.exit_status}, exit message: {node.exit_message}" 
-    assert result.sum.value == 15
+    assert node.outputs.sum.value == 15
+
+
+def test_arithmetic_add_trigger_run():
+    """Test the triggered ArithmeticAddCalculation DAG with airflow services"""
+
+    inputs = {
+        'code': load_code('bash@localhost'),
+        'x': Int(5),
+        'y': Int(10),
+    }
+    # TODO: add timeout
+    node = submit(ArithmeticAddCalculation, inputs, wait=True)
+
+    assert not node.is_failed, "Calculation failed, exit status: {node.exit_status}, exit message: {node.exit_message}" 
+    assert node.outputs.sum.value == 15

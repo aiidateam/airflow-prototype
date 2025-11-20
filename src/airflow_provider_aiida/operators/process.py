@@ -11,15 +11,24 @@ from airflow.utils.context import Context
 
 class ProcStepUntilTerminatedOperator(BaseOperator):
 
-    template_fields = ["node_pk"]
+    template_fields = ["process_pk", "aiida_profile", "aiida_path"]
 
-    def __init__(self, node_pk: int, **kwargs):
+    def __init__(self,
+                 process_pk: int,
+                 aiida_profile: str | None,
+                 aiida_path: str | None,
+                 **kwargs):
         super().__init__(**kwargs)
-        self.node_pk = node_pk
+        self.process_pk = process_pk
+        self.aiida_profile = aiida_profile
+        self.aiida_path = aiida_path
 
     def execute(self, context: Context):
         self.defer(
-            trigger=ProcStepUntilTerminatedTrigger(node_pk=self.node_pk),
+            trigger=ProcStepUntilTerminatedTrigger(
+                process_pk=self.process_pk,
+                aiida_profile=self.aiida_profile,
+                aiida_path=self.aiida_path),
             method_name="execute_complete",
         )
 

@@ -3,14 +3,13 @@ from aiida.engine.utils import instantiate_process, is_process_scoped, prepare_i
 from aiida.engine.processes.functions import FunctionProcess
 from aiida.engine.processes.process import Process
 from aiida.engine.processes.builder import ProcessBuilder
+from aiida.common.exceptions import ConfigurationError
 
 from aiida.common import InvalidOperation
 from aiida.orm import ProcessNode
 import logging
 import time
 import typing as t
-
-from airflow.api.client import get_current_api_client
 
 if t.TYPE_CHECKING:
     from aiida.engine.runners import ResultAndPk
@@ -57,7 +56,7 @@ def submit(
 
     process_inited = instantiate_process(runner, process, **inputs)
 
-    # If a dry run is requested, simply forward to `run`, because it is not compatible with `submit`. We choose for this
+    # If adry run is requested, simply forward to `run`, because it is not compatible with `submit`. We choose for this
     # instead of raising, because in this way the user does not have to change the launcher when testing. The same goes
     # for if `remote_folder` is present in the inputs, which means we are importing an already completed calculation.
     if process_inited.metadata.get('dry_run', False) or 'remote_folder' in inputs:
@@ -72,9 +71,32 @@ def submit(
     node = process_inited.node
 
     # Do not wait for the future's result, because in the case of a single worker this would cock-block itself
-    get_current_api_client().trigger_dag(
-        dag_id=process_inited.__class__.__name__,
-        conf={"node_pk": node.pk}
+    from airflow.utils.types import DagRunTriggeredByType
+    dag_id = process_inited.__class__.__name__
+
+    from aiida import get_profile
+    try:
+        aiida_profile = get_profile()
+    except ConfigurationError:
+        from aiida import load_profile
+        aiida_profile = load_profile()
+
+    import os
+    aiida_path = os.getenv("AIIDA_PATH", None)
+    conf = {"process_pk": node.pk,
+            "aiida_profile": aiida_profile.name,
+            "aiida_path": aiida_path
+            }
+
+    # NOTE: Raises error when not successfull, the typehint None is a bit confusing, it should not happen 
+    from airflow.api.common import trigger_dag
+    trigger_dag.trigger_dag(
+        dag_id=dag_id,
+        triggered_by=DagRunTriggeredByType.CLI,
+        run_id=None,
+        conf=conf,
+        logical_date=None,
+        replace_microseconds=True,
     )
 
     if not wait:
