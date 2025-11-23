@@ -1,0 +1,24 @@
+version: '3.8'
+
+# Minimal Docker Compose - PostgreSQL only for testing
+# Airflow services (scheduler, triggerer) are managed by the process manager
+
+services:
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "${AIRFLOW_PROVIDER_AIIDA__POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres-db-volume:
