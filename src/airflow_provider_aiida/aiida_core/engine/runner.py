@@ -202,24 +202,20 @@ print(f"SQL connection: {{sql_conn if sql_conn != 'NOT SET' else 'NOT SET'}}", f
 
 # NOTE: Raises error when not successfull, the typehint None is a bit confusing, it should not happen 
 from airflow.api.common import trigger_dag
+from airflow.utils.types import DagRunTriggeredByType
+
+conf={{'process_pk': {process_inited.pid},
+       'aiida_profile': {aiida_profile!r},
+       'aiida_path': {aiida_path!r}
+}}
+
 trigger_dag.trigger_dag(
-    dag_id=dag_id,
+    dag_id={process_inited_dag_id!r},
     triggered_by=DagRunTriggeredByType.CLI,
     run_id=None,
     conf=conf,
     logical_date=None,
     replace_microseconds=True,
-)
-
-
-
-# Trigger the DAG run
-client.trigger_dag(
-    dag_id='{process_inited_dag_id}',
-    conf={{'process_pk': {process_inited.pid},
-           'aiida_profile': {aiida_profile!r},
-           'aiida_path': {aiida_path!r}
-    }}
 )
 """
             from pathlib import Path
