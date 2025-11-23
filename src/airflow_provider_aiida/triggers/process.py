@@ -43,6 +43,8 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     saved_state = runner.persister.load_checkpoint(process_pk)
     proc = saved_state.unbundle(LoadSaveContext())
     proc._runner = runner
+    # NOTE: Overwrite persisted loop since loop might have changed
+    proc._loop = loop
     return proc
 
 
