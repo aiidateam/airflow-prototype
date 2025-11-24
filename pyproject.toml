@@ -43,6 +43,9 @@ provider_info = "airflow_provider_aiida.__init__:get_provider_info"
 [project.entry-points."aiida.dags"]
 aiida-standard = "airflow_provider_aiida.example_dags"
 
+[project.entry-points."airflow.plugins"]
+aiida_dag_run_listener = "airflow_provider_aiida.plugins.provenance_listener:ProvenanceListenerPlugin"
+
 [tool.hatch.version]
 path = "src/airflow_provider_aiida/__init__.py"
 
