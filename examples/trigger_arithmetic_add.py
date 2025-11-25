@@ -1,7 +1,7 @@
 # Create Process
 from airflow_provider_aiida.aiida_core.engine.launch import submit
 from aiida.calculations.arithmetic.add import ArithmeticAddCalculation
-from aiida import load_profile
+from airflow_provider_aiida.aiida_core import load_profile
 load_profile()
 from aiida.orm import load_code, Int
 code = load_code('bash@localhost')
