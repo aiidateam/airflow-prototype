@@ -53,7 +53,7 @@ allow-direct-references = true
 python = "3.11"
 
 [tool.hatch.envs.hatch-test]
-default-args = ["tests"]
+default-args = []
 dependencies = [
     "pytest>=7.0",
     "pytest-mock>=3.10",
@@ -66,28 +66,54 @@ dependencies = [
 python = ["3.11"]
 
 [tool.hatch.envs.hatch-test.env-vars]
-AIRFLOW_HOME = "{root}/.pytest/airflow"
-AIRFLOW_PROVIDER_AIIDA__POSTGRES_HOST_PORT = "5434"
-AIRFLOW__DATABASE__SQL_ALCHEMY_CONN = "postgresql+psycopg2://airflow:airflow@127.0.0.1:5434/airflow"
-AIRFLOW__CORE__DAGS_FOLDER = "{root}/src/airflow_provider_aiida/example_dags"
-AIRFLOW__CORE__LOAD_EXAMPLES = "False"
-AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS = "False"
-AIRFLOW__DAG_PROCESSOR__DAG_BUNDLE_CONFIG_LIST = '[{{"name":"dags-folder","classpath":"airflow.dag_processing.bundles.local.LocalDagBundle","kwargs":{{}}}},{{"name":"aiida_dags","classpath":"airflow_provider_aiida.bundles.aiida_dag_bundle.AiidaDagBundle","kwargs":{{}}}}]'
+# PostgreSQL configuration (shared by Airflow and AiiDA)
+POSTGRES_HOST = "127.0.0.1"
+POSTGRES_HOST_PORT = "5434"
+POSTGRES_USER = "postgres"
+POSTGRES_PASSWORD = "postgres"
+
+
+# AiiDA configuration
+AIIDA_PATH = "{root}/.pytest"
+AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE = "test"
+AIRFLOW_PROVIDER_AIIDA__TESTS__AIRFLOW_POSTGRES_PASSWORD = "password"
 
 [tool.hatch.envs.hatch-test.scripts]
-# Start Airflow services (for integration testing)
-scheduler = "airflow scheduler"
-api-server = "airflow api-server"
-triggerer = "airflow triggerer"
-dag-processor = "airflow dag-processor"
+# Setup test environment
+setup-profile = [
+  "python scripts/cmd_profile_create.py --postgres-host {env:POSTGRES_HOST} --postgres-port {env:POSTGRES_HOST_PORT} --postgres-user {env:POSTGRES_USER} --postgres-password {env:POSTGRES_PASSWORD} --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} --aiida-password {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIRFLOW_POSTGRES_PASSWORD}",
+]
+reserialize = [
+  "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} dags reserialize --bundle-name aiida_dags",
+]
+
+teardown-profile = [
+  "python scripts/cmd_profile_delete.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} --postgres-user {env:POSTGRES_USER} --postgres-password {env:POSTGRES_PASSWORD}"
+]
+
+# Process manager commands
+start-psql-service = "docker compose -f docker-compose.test.yml up -d"
+stop-psql-service = "docker compose -f docker-compose.test.yml down -v"
+status-psql-service = "docker ps"
+
+# Start individual Airflow services (for manual testing)
+scheduler = "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} scheduler"
+api-server = "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} api-server"
+triggerer = "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} triggerer"
+dag-processor = "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} dag-processor"
 
 # Run integration tests
-integration = "pytest -m integration tests"
+unit-tests = "pytest -m 'not integration' {args:{root}/tests}"
+integration-tests = "pytest -m 'integration' {args:{root}/tests}"
+# Default test runner - excludes integration tests, only runs tests/ directory
+run = "pytest {args:{root}/tests}"
 
 # Clean test artifacts
+# NOTE: Only use after services have been stopped to
 clean = [
     "rm -rf .pytest",
-    "echo 'Cleaned .pytest directory'",
+    "docker volume rm -f airflow-provider-aiida_postgres-db-volume",
+    "echo 'Cleaned Docker volumes and .pytest directory'",
 ]
 
 [tool.setuptools]
@@ -103,6 +129,9 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
+markers = [
+    "integration: marks tests that require Airflow services to be running (scheduler, triggerer)",
+]
 filterwarnings = [
     # AiiDA SQLAlchemy warnings - these are expected and safe to ignore as done in aiida-core
     "ignore:Object of type .* not in session, .* operation along .* will not proceed:sqlalchemy.exc.SAWarning",

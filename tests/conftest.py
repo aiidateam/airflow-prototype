@@ -1,11 +1,45 @@
 import pytest
-from aiida import load_profile
-
-load_profile()
+import os
 
 
 @pytest.fixture(scope='session')
-def bash_code():
+def aiida_profile():
+    """Load and return the AiiDA profile for testing.
+
+    The profile name is read from the AIIDA_PROFILE environment variable.
+    This fixture is session-scoped, so the profile is loaded once per test session.
+
+    Returns:
+        Profile: The loaded AiiDA profile
+
+    Raises:
+        RuntimeError: If AIIDA_PROFILE is not set or profile cannot be loaded
+    """
+    from airflow_provider_aiida.utils.profile import load_profile
+
+    profile_name = os.getenv('AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE')
+
+    if profile_name is None:
+        raise RuntimeError(
+            "AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE environment variable is not set.\n"
+            "This should be set automatically by the hatch-test environment.\n"
+            "If running tests manually, set it with: export AIIDA_PROFILE=test"
+        )
+
+    try:
+        profile = load_profile(profile_name)
+    except Exception as e:
+        print(f"\n✗ Failed to load AiiDA profile '{profile_name}'")
+        print(f"Error: {e}")
+        print("\nPlease create the test profile first:")
+        print("  hatch run hatch-test.py3.11:setup-profile")
+        raise
+
+    return profile
+
+
+@pytest.fixture(scope='session')
+def bash_code(aiida_profile):
     """Create and return the bash@localhost code for tests.
 
     This fixture automatically sets up:
