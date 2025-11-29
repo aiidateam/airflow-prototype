@@ -15,6 +15,22 @@ hatch run hatch-test.py3.11:setup-profile
 hatch run hatch-test.py3.11:unit-tests
 ```
 
+To run the integration tests we need to start the Airflow services before.
+
+```bash
+# 1. Start PostgreSQL
+hatch run hatch-test.py3.11:start-psql-service
+
+# 2. Create AiiDA profile and databases
+hatch run hatch-test.py3.11:setup-profile
+
+# 3. Start Airflow services
+hatch run hatch-test.py3.11:daemon-start
+
+# 4. Run integration tests
+hatch run hatch-test.py3.11:integration-tests
+```
+
 ## Unit tests
 
 ### Setup test environment
@@ -84,6 +100,22 @@ postgres (admin)
 The profile will be located at `.pytest/.aiida/test/` (or `$AIIDA_PATH/.aiida/test/` if `AIIDA_PATH` is set) with the following structure:
 ```
 .pytest/.aiida/test/
+├── daemon/                     # Daemon process management
+│   ├── services/               # Per-service directories
+│   │   ├── scheduler/
+│   │   │   ├── state.json      # PID, state, timestamps
+│   │   │   ├── stdout.log      # Service output
+│   │   │   └── stderr.log      # Service errors
+│   │   ├── triggerer/
+│   │   │   ├── state.json
+│   │   │   ├── stdout.log
+│   │   │   └── stderr.log
+│   │   ├── dag-processor/
+│   │   │   └── ...
+│   │   └── api-server/
+│   │       └── ...
+│   ├── daemon.pid              # Daemon PID file
+│   └── daemon.log              # Daemon output (background mode)
 └── airflow/                    # Airflow files
     ├── dags/                   # DAG files
     └── airflow.cfg             # Airflow configuration
@@ -112,6 +144,66 @@ hatch test -- -m 'not integration'
 ## Run integration tests
 
 Integration tests require running Airflow services (scheduler, triggerer, dag-processor). These tests are marked with `@pytest.mark.integration`.
+
+
+### Start Airflow in background with daemon
+
+Use the daemon manager to start all services at once:
+
+```bash
+# Start daemon in background (default)
+hatch run hatch-test.py3.11:daemon-start
+```
+
+The daemon will:
+- Check if daemon is already running
+- Start all Airflow services (scheduler, triggerer, dag-processor, api-server)
+- Run a health monitor thread that tracks service status every 5 seconds
+- Detach and run in background
+
+**Background mode** (default):
+- Daemon detaches and runs in background
+- Services continue running after terminal closes
+- Use `daemon-stop` to stop all services
+- Use `daemon-status` to check service status
+
+**Foreground mode** (for debugging):
+```bash
+# Run daemon in foreground with --foreground flag
+python scripts/cmd_daemon_start.py --profile-name test --foreground
+```
+- Keeps daemon running in your terminal
+- Press Ctrl+C to gracefully stop all services
+- Useful for interactive testing and debugging
+
+Check service status in another terminal:
+
+ ```bash
+hatch run hatch-test.py3.11:daemon-status
+```
+
+Expected output:
+```
+=== Airflow Test Services Status ===
+
+Health monitor daemon: RUNNING (PID: 12345)
+
+Service Status:
+--------------------------------------------------------------------------------
+Service         State        PID        Uptime          Last Check      Failures
+--------------------------------------------------------------------------------
+scheduler       ✓ RUNNING    12346      2m 15s          3s ago          0
+triggerer       ✓ RUNNING    12347      2m 15s          3s ago          0
+dag-processor   ✓ RUNNING    12348      2m 15s          3s ago          0
+api-server      ✓ RUNNING    12349      2m 15s          3s ago          0
+--------------------------------------------------------------------------------
+
+Airflow home: .pytest/.aiida/test/airflow
+DAGs folder: .pytest/.aiida/test/airflow/dags
+Logs: .pytest/.aiida/test/airflow/logs
+```
+
+
 
 ### Start Airflow services in foreground (recommended for debugging)
 
@@ -157,8 +249,14 @@ hatch test
 
 Be sure that all airflow services and the docker service have been stopped.
 The docker service can be stopped with.
-```
+
+```bash
 hatch run hatch-test.py3.11:stop-psql-service
+```
+
+The Airflow services
+```bash
+hatch run hatch-test.py3.11:daemon-stop
 ```
 
 To clean test artifacts including the PostgreSQL databasese cluster, as well as the aiida and the airflow config.
