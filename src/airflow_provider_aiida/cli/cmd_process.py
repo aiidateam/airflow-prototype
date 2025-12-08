@@ -60,7 +60,7 @@ def process_pause(pk):
         click.echo(f"DAG run ID: {dag_run_id}")
 
         # Get process class name for DAG ID
-        process_type = node.process_type
+        process_type = node.process_class
         if not process_type:
             click.secho(f"✗ Error: Node {pk} does not have a process type", fg='red', err=True)
             raise click.Abort()
@@ -69,7 +69,11 @@ def process_pause(pk):
         click.echo(f"\nMarking DAG run as failed...")
 
         # Mark the DAG run as failed
+        # TODO check success
         mark_aiida_process_dag_run_failed(process_type, dag_run_id)
+        node.pause()
+        node.store()
+
 
         click.secho(f"✓ Successfully paused process {pk}", fg='green', bold=True)
         click.echo(f"  DAG run '{dag_run_id}' has been marked as failed")
@@ -140,7 +144,8 @@ def process_play(pk, dry_run, only_failed):
         click.echo(f"DAG run ID: {dag_run_id}")
 
         # Get process class name for DAG ID
-        process_type = node.process_type
+        process_type = node.process_class
+        
         if not process_type:
             click.secho(f"✗ Error: Node {pk} does not have a process type", fg='red', err=True)
             raise click.Abort()
@@ -153,12 +158,14 @@ def process_play(pk, dry_run, only_failed):
             click.echo(f"\nClearing DAG run...")
 
         # Clear the DAG run
+        # TODO check success
         result = clear_aiida_process_dag_run(
             process_type,
             dag_run_id,
             dry_run=dry_run,
             only_failed=only_failed
         )
+        node.unpause()
 
         if dry_run:
             click.secho(f"✓ [DRY RUN] Would clear process {pk}", fg='yellow', bold=True)
