@@ -17,7 +17,7 @@ def airdi_process():
 @click.argument('pk', type=int)
 def process_pause(pk):
     """
-    Pause (mark as failed) the Airflow DAG run for an AiiDA process.
+    Stop the Airflow DAG run for an AiiDA process.
 
     This marks the DAG run associated with the process node as failed,
     effectively pausing its execution in Airflow.
@@ -101,7 +101,7 @@ def process_pause(pk):
 )
 def process_play(pk, dry_run, only_failed):
     """
-    Play (clear/resume) the Airflow DAG run for an AiiDA process.
+    Continues the Airflow DAG run for an AiiDA process.
 
     This clears the DAG run associated with the process node, allowing it
     to be re-run or resumed in Airflow.
