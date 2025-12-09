@@ -20,7 +20,8 @@ dynamic = [
 requires-python = ">=3.11.0,<3.12.0"
 dependencies = [
     "apache-airflow>=3.1.0",
-    "aiida-core @ git+https://github.com/aiidateam/aiida-core@airflow-dev"
+    "aiida-core @ git+https://github.com/aiidateam/aiida-core@airflow-dev",
+    "click>=8.0"
 ]
 
 [project.optional-dependencies]
@@ -37,14 +38,15 @@ Source = "..." # TODO
 file = "README.md"
 content-type = "text/markdown"
 
-[project.scripts]
-airflow-provider-aiida-triggerer-service = "airflow_provider_aiida.aiida_core.engine.daemon.triggerer_service:main"
-
 [project.entry-points.apache_airflow_provider]
 provider_info = "airflow_provider_aiida.__init__:get_provider_info"
 
 [project.entry-points."aiida.dags"]
 aiida-standard = "airflow_provider_aiida.example_dags"
+
+[project.scripts]
+airdi = "airflow_provider_aiida.cli:airdi"
+airflow-provider-aiida-triggerer-service = "airflow_provider_aiida.aiida_core.engine.daemon.triggerer_service:main"
 
 [tool.hatch.version]
 path = "src/airflow_provider_aiida/__init__.py"
@@ -80,14 +82,14 @@ POSTGRES_PASSWORD = "postgres"
 # AiiDA configuration
 AIIDA_PATH = "{root}/.pytest"
 AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE = "test"
-AIRFLOW_PROVIDER_AIIDA__TESTS__AIRFLOW_POSTGRES_PASSWORD = "password"
 
 [tool.hatch.envs.hatch-test.scripts]
 # Setup test environment
 setup-profile = [
-  "python scripts/cmd_profile_create.py --postgres-host {env:POSTGRES_HOST} --postgres-port {env:POSTGRES_HOST_PORT} --postgres-user {env:POSTGRES_USER} --postgres-password {env:POSTGRES_PASSWORD} --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} --aiida-password {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIRFLOW_POSTGRES_PASSWORD}",
+  "airdi presto --postgres-hostname {env:POSTGRES_HOST} --postgres-port {env:POSTGRES_HOST_PORT} --postgres-username {env:POSTGRES_USER} --postgres-password {env:POSTGRES_PASSWORD} --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE}",
 ]
 
+# TODO this needs to be replaced
 teardown-profile = [
   "python scripts/cmd_profile_delete.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} --postgres-user {env:POSTGRES_USER} --postgres-password {env:POSTGRES_PASSWORD}"
 ]
@@ -97,16 +99,16 @@ start-psql-service = "docker compose -f docker-compose.test.yml up -d"
 stop-psql-service = "docker compose -f docker-compose.test.yml down -v"
 status-psql-service = "docker ps"
 
-# Daemon commands
-daemon-start = "python scripts/cmd_daemon_start.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE}"
-daemon-stop = "python scripts/cmd_daemon_stop.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE}"
-daemon-status = "python scripts/cmd_daemon_status.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE}"
+# Services commands
+services-start = "airdi services start"
+services-stop = "airdi services stop"
+services-status = "airdi services status"
 
 # Start individual Airflow services (for manual testing)
-scheduler = "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} scheduler"
-api-server = "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} api-server"
-triggerer = "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} triggerer"
-dag-processor = "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} dag-processor"
+scheduler = "airdi airflow scheduler"
+api-server = "airdi airflow api-server"
+triggerer = "airdi airflow triggerer"
+dag-processor = "airdi airflow dag-processor"
 
 # Run integration tests
 unit-tests = "pytest -m 'not integration' {args:{root}/tests}"
