@@ -139,79 +139,135 @@ class ConditionalLoopTaskGroup(TaskGroup):
         dag_id = context['dag'].dag_id
         session = Session()
         if should_continue:
+            from airflow.api_fastapi.core_api.routes.public.task_instances import post_clear_task_instances
+            from airflow.api_fastapi.core_api.datamodels.task_instances import ClearTaskInstancesBody
+            from airflow.models.dagbag import DBDagBag
+
+            dag_bag = DBDagBag()
+
+            body = ClearTaskInstancesBody(
+                dry_run=False,
+                only_failed=False,
+                dag_run_id=context['dag_run'].run_id,
+                task_ids=[
+                          'my_loop.step_0',
+                          'my_loop.step_1',
+                          'my_loop.step_2',
+                          'my_loop.loop_control'],
+            )
+            
+            # Call the Airflow REST API function to clear task instances
+            session = Session()
             try:
-                # Get the DAG run
-                dag_run = session.query(DagRun).filter(
-                    DagRun.dag_id == dag_id,
-                    DagRun.run_id == dag_run_id
-                ).first()
-
-                if dag_run is None:
-                    self.log.error(f"DAG run not found: {dag_id}/{dag_run_id}")
-                    return "DAG run not found"
-
-                # Get all task instances in this task group that need to be cleared
-                task_instances = dag_run.get_task_instances(session=session)
-
-                # Filter to only tasks in this group (condition + steps)
-                tasks_to_clear = [
-                    task_instance for task_instance in task_instances
-                    if task_instance.task_id.startswith(f"{self.group_id}.step_") or
-                       task_instance.task_id.startswith(f"{self.group_id}.loop_control")
-                ]
-
-                if tasks_to_clear:
-                    self.log.info(f"Clearing {len(tasks_to_clear)} tasks for next iteration")
-                    from airflow.utils.state import DagRunState
-
-                    clear_task_instances(
-                        tis = tasks_to_clear,
-                        session = session,
-                        dag_run_state = DagRunState.QUEUED,
-                        run_on_latest_version = False,
-                    )
-                    session.commit()
-
-
+                result = post_clear_task_instances(
+                    dag_id=dag_id,
+                    body=body,
+                    dag_bag=dag_bag,
+                    session=session,
+                )
+                session.commit()
             finally:
                 session.close()
+
+            #try:
+            #    # Get the DAG run
+            #    dag_run = session.query(DagRun).filter(
+            #        DagRun.dag_id == dag_id,
+            #        DagRun.run_id == dag_run_id
+            #    ).first()
+
+            #    if dag_run is None:
+            #        self.log.error(f"DAG run not found: {dag_id}/{dag_run_id}")
+            #        return "DAG run not found"
+
+            #    # Get all task instances in this task group that need to be cleared
+            #    task_instances = dag_run.get_task_instances(session=session)
+
+            #    # Filter to only tasks in this group (condition + steps)
+            #    tasks_to_clear = [
+            #        task_instance for task_instance in task_instances
+            #        if task_instance.task_id.startswith(f"{self.group_id}.step_") or
+            #           task_instance.task_id.startswith(f"{self.group_id}.loop_control")
+            #    ]
+
+            #    if tasks_to_clear:
+            #        self.log.info(f"Clearing {len(tasks_to_clear)} tasks for next iteration")
+            #        from airflow.utils.state import DagRunState
+
+            #        clear_task_instances(
+            #            tis = tasks_to_clear,
+            #            session = session,
+            #            dag_run_state = DagRunState.QUEUED,
+            #            run_on_latest_version = False,
+            #        )
+            #        session.commit()
+
+
+            #finally:
+            #    session.close()
             return f"{self.group_id}.step_0"
         else:
+            from airflow.api_fastapi.core_api.routes.public.task_instances import post_clear_task_instances
+            from airflow.api_fastapi.core_api.datamodels.task_instances import ClearTaskInstancesBody
+            from airflow.models.dagbag import DBDagBag
+
+            dag_bag = DBDagBag()
+
+            body = ClearTaskInstancesBody(
+                dry_run=False,
+                only_failed=False,
+                dag_run_id=context['dag_run'].run_id,
+                task_ids=['my_loop.exit'],
+            )
+            
+            # Call the Airflow REST API function to clear task instances
+            session = Session()
             try:
-                # Get the DAG run
-                dag_run = session.query(DagRun).filter(
-                    DagRun.dag_id == dag_id,
-                    DagRun.run_id == dag_run_id
-                ).first()
-
-                if dag_run is None:
-                    self.log.error(f"DAG run not found: {dag_id}/{dag_run_id}")
-                    return "DAG run not found"
-
-                # Get all task instances in this task group that need to be cleared
-                task_instances = dag_run.get_task_instances(session=session)
-
-                # Filter to only tasks in this group (condition + steps)
-                tasks_to_clear = [
-                    task_instance for task_instance in task_instances
-                    if task_instance.task_id.startswith(f"{self.group_id}.exit")
-                ]
-
-                if tasks_to_clear:
-                    self.log.info(f"Clearing {len(tasks_to_clear)} tasks for next iteration")
-                    from airflow.utils.state import DagRunState
-
-                    clear_task_instances(
-                        tis = tasks_to_clear,
-                        session = session,
-                        dag_run_state = DagRunState.QUEUED,
-                        run_on_latest_version = False,
-                    )
-                    session.commit()
-
-
+                result = post_clear_task_instances(
+                    dag_id=dag_id,
+                    body=body,
+                    dag_bag=dag_bag,
+                    session=session,
+                )
+                session.commit()
             finally:
                 session.close()
+
+            #try:
+            #    # Get the DAG run
+            #    dag_run = session.query(DagRun).filter(
+            #        DagRun.dag_id == dag_id,
+            #        DagRun.run_id == dag_run_id
+            #    ).first()
+
+            #    if dag_run is None:
+            #        self.log.error(f"DAG run not found: {dag_id}/{dag_run_id}")
+            #        return "DAG run not found"
+
+            #    # Get all task instances in this task group that need to be cleared
+            #    task_instances = dag_run.get_task_instances(session=session)
+
+            #    # Filter to only tasks in this group (condition + steps)
+            #    tasks_to_clear = [
+            #        task_instance for task_instance in task_instances
+            #        if task_instance.task_id.startswith(f"{self.group_id}.exit")
+            #    ]
+
+            #    if tasks_to_clear:
+            #        self.log.info(f"Clearing {len(tasks_to_clear)} tasks for next iteration")
+            #        from airflow.utils.state import DagRunState
+
+            #        clear_task_instances(
+            #            tis = tasks_to_clear,
+            #            session = session,
+            #            dag_run_state = DagRunState.QUEUED,
+            #            run_on_latest_version = False,
+            #        )
+            #        session.commit()
+
+
+            #finally:
+            #    session.close()
             return f"{self.group_id}.exit"
 
     def _step_wrapper(self, step_callable: Callable, step_index: int, **context):
@@ -274,71 +330,67 @@ class ConditionalLoopTaskGroup(TaskGroup):
             from airflow.api_fastapi.core_api.datamodels.task_instances import ClearTaskInstancesBody
             from airflow.models.dagbag import DBDagBag
 
-            #dag_bag = DBDagBag()
+            dag_bag = DBDagBag()
 
-            #body = ClearTaskInstancesBody(
-            #    dry_run=False,
-            #    only_failed=False,
-            #    dag_run_id=context['dag_run'].run_id,
-            #    task_ids=['my_loop.check_condition',
-            #              'my_loop.step_0',
-            #              'my_loop.step_1',
-            #              'my_loop.step_2',
-            #              'my_loop.loop_control'],
-            #)
-            #
-            ## Call the Airflow REST API function to clear task instances
-            #session = Session()
-            #try:
-            #    result = post_clear_task_instances(
-            #        dag_id=dag_id,
-            #        body=body,
-            #        dag_bag=dag_bag,
-            #        session=session,
-            #    )
-            #    session.commit()
-            #finally:
-            #    session.close()
-
-            # Create a new session
-            session = Session()
+            body = ClearTaskInstancesBody(
+                dry_run=False,
+                only_failed=False,
+                dag_run_id=context['dag_run'].run_id,
+                task_ids=['my_loop.check_condition'],
+            )
             
+            # Call the Airflow REST API function to clear task instances
+            session = Session()
             try:
-                # Get the DAG run
-                dag_run = session.query(DagRun).filter(
-                    DagRun.dag_id == dag_id,
-                    DagRun.run_id == dag_run_id
-                ).first()
-
-                if dag_run is None:
-                    self.log.error(f"DAG run not found: {dag_id}/{dag_run_id}")
-                    return "DAG run not found"
-
-                # Get all task instances in this task group that need to be cleared
-                task_instances = dag_run.get_task_instances(session=session)
-
-                # Filter to only tasks in this group (condition + steps)
-                tasks_to_clear = [
-                    task_instance for task_instance in task_instances
-                    if task_instance.task_id.startswith(f"{self.group_id}.check_condition")
-                ]
-
-                if tasks_to_clear:
-                    self.log.info(f"Clearing {len(tasks_to_clear)} tasks for next iteration")
-                    from airflow.utils.state import DagRunState
-
-                    clear_task_instances(
-                        tis = tasks_to_clear,
-                        session = session,
-                        dag_run_state = DagRunState.QUEUED,
-                        run_on_latest_version = False,
-                    )
-                    session.commit()
-
-                return f"Cleared tasks for iteration {next_iteration}"
-
+                result = post_clear_task_instances(
+                    dag_id=dag_id,
+                    body=body,
+                    dag_bag=dag_bag,
+                    session=session,
+                )
+                session.commit()
             finally:
                 session.close()
+
+            # Create a new session
+            #session = Session()
+            #
+            #try:
+            #    # Get the DAG run
+            #    dag_run = session.query(DagRun).filter(
+            #        DagRun.dag_id == dag_id,
+            #        DagRun.run_id == dag_run_id
+            #    ).first()
+
+            #    if dag_run is None:
+            #        self.log.error(f"DAG run not found: {dag_id}/{dag_run_id}")
+            #        return "DAG run not found"
+
+            #    # Get all task instances in this task group that need to be cleared
+            #    task_instances = dag_run.get_task_instances(session=session)
+
+            #    # Filter to only tasks in this group (condition + steps)
+            #    tasks_to_clear = [
+            #        task_instance for task_instance in task_instances
+            #        if task_instance.task_id.startswith(f"{self.group_id}.check_condition")
+            #    ]
+
+            #    if tasks_to_clear:
+            #        self.log.info(f"Clearing {len(tasks_to_clear)} tasks for next iteration")
+            #        from airflow.utils.state import DagRunState
+
+            #        clear_task_instances(
+            #            tis = tasks_to_clear,
+            #            session = session,
+            #            dag_run_state = DagRunState.QUEUED,
+            #            run_on_latest_version = False,
+            #        )
+            #        session.commit()
+
+            #    return f"Cleared tasks for iteration {next_iteration}"
+
+            #finally:
+            #    session.close()
         else:
             self.log.info("Loop completed - condition is False or max iterations reached")
             return "Loop completed"
