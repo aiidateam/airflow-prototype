@@ -489,11 +489,13 @@ def from_profile_create_airflow_config(profile: Profile):
     # Build Airflow database connection string
     db_conn = f"postgresql+psycopg2://{airflow_db_user}:{airflow_db_password}@{airflow_db_host}:{airflow_db_port}/{airflow_db_name}"
 
-    dag_bundle = '[{"name":"aiida_dags","classpath":"airflow_provider_aiida.bundles.aiida_dag_bundle.AiidaDagBundle","kwargs":{}}]'
 
     airflow_home = get_airflow_home(profile)
     airflow_home.mkdir(parents=True, exist_ok=True)
 
+    dags_folder = airflow_home / "dags"
+    dags_folder.mkdir(parents=False, exist_ok=True)
+    dag_bundle = f'[{{"name":"aiida_dags","classpath":"airflow_provider_aiida.bundles.aiida_dag_bundle.AiidaDagBundle","kwargs":{{"output_dir": "{str(dags_folder)}"}}}}]'
 
     from airflow.configuration import AirflowConfigParser
     from base64 import b64encode
