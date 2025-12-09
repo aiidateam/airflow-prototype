@@ -15,18 +15,16 @@ from aiida.manage.configuration import get_config_option
 )
 # NOTE: for now no --use-postgres flag because it is always postgres
 @click.option('--postgres-hostname', type=str, default='localhost', help='The hostname of the PostgreSQL server.')
-@click.option('--postgres-port', type=int, default=5432, help='The port of the PostgreSQL server.')
+@click.option(
+    '--postgres-port',
+    type=int,
+    default=lambda: os.getenv('POSTGRES_PORT', '5432'),
+    help='The port of the PostgreSQL server.')
 @click.option(
     '--postgres-username',
     type=click.STRING,
     default=lambda: os.getenv('POSTGRES_USER', 'postgres'),
     help='The username of the PostgreSQL user that is authorized to create new databases.',
-)
-@click.option(
-    '--postgres-password',
-    type=str,
-    required=False,
-    help='The password of the PostgreSQL user that is authorized to create new databases.',
 )
 @click.option(
     '--postgres-password',
