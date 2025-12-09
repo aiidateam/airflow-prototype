@@ -5,6 +5,7 @@ to the corresponding triggers that wrap aiida-core's task functions.
 """
 from airflow.models import BaseOperator
 from airflow_provider_aiida.triggers.process import ProcStepUntilTerminatedTrigger
+from airflow_provider_aiida.utils.airflow_control import set_dag_run_id
 
 from airflow.utils.context import Context
 
@@ -24,6 +25,17 @@ class ProcStepUntilTerminatedOperator(BaseOperator):
         self.aiida_path = aiida_path
 
     def execute(self, context: Context):
+        # Add dag_run_id to the process extras and attributes
+        from aiida import load_profile
+        load_profile(self.aiida_profile)
+        from aiida.orm import load_node
+
+        node = load_node(self.process_pk)
+
+        # Try to get dag_run_id from context and set it on the node
+
+        set_dag_run_id(node, context['run_id'])
+
         self.defer(
             trigger=ProcStepUntilTerminatedTrigger(
                 process_pk=self.process_pk,

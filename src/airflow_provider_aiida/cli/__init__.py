@@ -16,11 +16,13 @@ def airdi():
 
 # Register command groups
 from airflow_provider_aiida.cli.cmd_presto import airdi_presto
+from airflow_provider_aiida.cli.cmd_process import airdi_process
 from airflow_provider_aiida.cli.cmd_services import airdi_services
 from airflow_provider_aiida.cli.cmd_status import airdi_status
 from airflow_provider_aiida.cli.cmd_airflow import airdi_airflow
 
 airdi.add_command(airdi_presto)
+airdi.add_command(airdi_process)
 airdi.add_command(airdi_services)
 airdi.add_command(airdi_status)
 airdi.add_command(airdi_airflow)

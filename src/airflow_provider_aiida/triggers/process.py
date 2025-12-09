@@ -5,47 +5,13 @@ allowing CalcJob operations to be performed asynchronously in the Airflow trigge
 """
 
 import logging
-from typing import Any, AsyncIterator, TYPE_CHECKING
+from typing import Any, AsyncIterator 
 
 from airflow.triggers.base import BaseTrigger, TriggerEvent
+from airflow_provider_aiida.utils.airflow_control import load_process
 
-from airflow_provider_aiida.aiida_core.engine.runner import AirflowRunner
-
-if TYPE_CHECKING:
-    from asyncio import AbstractEventLoop
 
 logger = logging.getLogger(__name__)
-
-
-def get_current_event_loop() -> 'AbstractEventLoop':
-    import asyncio
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        # No running loop - create a new one
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop
-
-
-def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | None):
-    """reenters same state"""
-    import os
-    # TODO find a solution that gives understandable error message
-    # NOTE: this conflicts if profiles from different aiida paths are used
-    if aiida_path is not None:
-        os.environ["AIIDA_PATH"] = aiida_path
-    from aiida import load_profile
-    load_profile(aiida_profile)
-    from plumpy.persistence import LoadSaveContext
-    loop = get_current_event_loop()
-    runner = AirflowRunner(loop=loop)
-    saved_state = runner.persister.load_checkpoint(process_pk)
-    proc = saved_state.unbundle(LoadSaveContext())
-    proc._runner = runner
-    # NOTE: Overwrite persisted loop since loop might have changed
-    proc._loop = loop
-    return proc
 
 
 class ProcStepUntilTerminatedTrigger(BaseTrigger):
