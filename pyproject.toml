@@ -74,7 +74,7 @@ python = ["3.11"]
 [tool.hatch.envs.hatch-test.env-vars]
 # PostgreSQL configuration (shared by Airflow and AiiDA)
 POSTGRES_HOST = "127.0.0.1"
-POSTGRES_HOST_PORT = "5434"
+POSTGRES_PORT = "5434"
 POSTGRES_USER = "postgres"
 POSTGRES_PASSWORD = "postgres"
 
@@ -86,7 +86,7 @@ AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE = "test"
 [tool.hatch.envs.hatch-test.scripts]
 # Setup test environment
 setup-profile = [
-  "airdi presto --postgres-hostname {env:POSTGRES_HOST} --postgres-port {env:POSTGRES_HOST_PORT} --postgres-username {env:POSTGRES_USER} --postgres-password {env:POSTGRES_PASSWORD} --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE}",
+  "airdi presto --postgres-hostname {env:POSTGRES_HOST} --postgres-port {env:POSTGRES_PORT} --postgres-username {env:POSTGRES_USER} --postgres-password {env:POSTGRES_PASSWORD} --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE}",
 ]
 
 # TODO this needs to be replaced
