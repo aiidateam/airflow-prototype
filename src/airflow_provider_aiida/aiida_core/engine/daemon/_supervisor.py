@@ -155,6 +155,8 @@ class ServiceConfig(ABC):
     # TODO rename to service_identifier?
     service_name: ClassVar[str] 
     command: ClassVar[str]
+    # TODO cleaner with some schema
+    env: dict[str, str] 
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -164,8 +166,12 @@ class ServiceConfig(ABC):
             SERVICE_CONFIG_REGISTRY[name] = cls
 
     @abstractmethod
-    def create_unique_env(self) -> dict[str, str]:
+    def _new_env(self) -> dict[str, str]:
         raise NotImplementedError()
+
+    def create_unique_env(self) -> dict[str, str]:
+        self.env = self._new_env()
+        return self.env
 
     def to_dict(self):
         values = asdict(self)
@@ -187,24 +193,6 @@ class WorkerServiceConfig(ServiceConfig):
     @abstractmethod
     def create_unique_env(self) -> dict[str, str]:
         raise NotImplementedError()
-
-@dataclass
-class AiidaWorkerConfig(WorkerServiceConfig):
-    service_name: ClassVar[str] = "aiida_worker"
-    command: ClassVar[str] = "verdi daemon worker"
-
-    def create_unique_env(self) -> dict[str, str]:
-        aiida_path = os.environ.get("AIIDA_PATH")
-        return {} if aiida_path is None else {"AIIDA_PATH": aiida_path}
-
-# TODO make commands tunable, not sure how without complicated interface, maybe just comamnd_base and args
-@dataclass
-class SleepServiceConfig(NonWorkerServiceConfig):
-    service_name: ClassVar[str] = "sleep10"
-    command: ClassVar[str] = "sleep 10"
-
-    def create_unique_env(self) -> dict[str, str]:
-        return {}
 
 class ServiceConfigFactory:
 

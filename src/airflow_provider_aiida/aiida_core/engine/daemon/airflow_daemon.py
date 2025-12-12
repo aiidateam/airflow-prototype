@@ -9,7 +9,7 @@ from airflow_provider_aiida.aiida_core.engine.daemon._supervisor import (
 from pathlib import Path
 from dataclasses import dataclass
 from typing import ClassVar, TYPE_CHECKING
-import os
+import logging
 
 from airflow_provider_aiida.aiida_core.manage.configuration.config import get_airflow_home
 
@@ -17,6 +17,9 @@ if TYPE_CHECKING:
     from aiida.manage.configuration import Profile
     from aiida.manage.configuration.config import Config 
 
+logger = logging.getLogger(__name__)
+
+# TODO move to aiida something
 def get_daemon_dir(profile: Profile, config: Config):
     from aiida.manage.configuration.settings import AiiDAConfigPathResolver
     config_path_resolver: AiiDAConfigPathResolver = AiiDAConfigPathResolver(Path(config.dirpath))
@@ -29,7 +32,7 @@ class AirflowDagProcessorServiceConfig(NonWorkerServiceConfig):
     command: ClassVar[str] = "airflow dag-processor"
     airflow_home: str
 
-    def create_unique_env(self) -> dict[str, str]:
+    def _new_env(self) -> dict[str, str]:
         return {'AIRFLOW_HOME': self.airflow_home}
 
 @dataclass
@@ -41,7 +44,7 @@ class AirflowSchedulerServiceConfig(NonWorkerServiceConfig):
     num_workers: int
 
 
-    def create_unique_env(self) -> dict[str, str]:
+    def _new_env(self) -> dict[str, str]:
         return {'AIRFLOW_HOME': self.airflow_home,
                 'AIRFLOW__CORE__PARALLELISM': str(self.num_workers)}
 
@@ -54,10 +57,33 @@ class AirflowTriggererServiceConfig(NonWorkerServiceConfig):
     num_triggerers: int
 
 
-    def create_unique_env(self) -> dict[str, str]:
+    def _new_env(self) -> dict[str, str]:
         return {
             'AIRFLOW_HOME': self.airflow_home,
             'AIRFLOW__CORE__ASYNC_PARALLELISM': str(self.num_triggerers)}
+
+
+# TODO this is not used but the idea is to make the env types generic
+from typing import TypedDict
+class AirflowApiServerEnv(TypedDict):
+    AIRFLOW_HOME: str
+    AIRFLOW__API__HOST: str 
+    AIRFLOW__API__PORT: str 
+
+
+def get_free_port() -> int:
+    """Get a free port from the OS.
+
+    This uses the OS's ephemeral port allocation to find an available port.
+    The OS guarantees that the port is currently free.
+    """
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return port
+
 
 @dataclass
 class AirflowApiServerServiceConfig(NonWorkerServiceConfig):
@@ -66,8 +92,29 @@ class AirflowApiServerServiceConfig(NonWorkerServiceConfig):
     command: ClassVar[str] = "airflow api-server"
     airflow_home: str
 
-    def create_unique_env(self) -> dict[str, str]:
-        return {'AIRFLOW_HOME': self.airflow_home}
+    def _new_env(self) -> dict[str, str]:
+        from airflow.configuration import AirflowConfigParser
+        airflow_config = AirflowConfigParser()
+        airflow_config_file = Path(self.airflow_home) / 'airflow.cfg'
+        airflow_config.read(airflow_config_file)
+
+        
+        if (host := airflow_config.get('api', 'host')) is None:
+            # TODO polish error msg
+            raise ValueError("Cannot be None")
+        
+        # Get a free port from the OS
+        if (port := airflow_config.get('api', 'port')) is None:
+            port = get_free_port()
+            logger.info("No port found in config")
+
+        # You can now use this port for the API server
+        # For example, set it in environment variables:
+        return {
+            'AIRFLOW_HOME': self.airflow_home,
+            'AIRFLOW__API__PORT': str(port),
+            'AIRFLOW__API__HOST': host,
+        }
 
 class AirflowDaemon:
 
@@ -75,7 +122,7 @@ class AirflowDaemon:
         from aiida.manage import get_manager 
         manager = get_manager()
         profile = manager.load_profile() if profile_identifier is None else manager.load_profile(profile_identifier)
-
+a
         # Validate profile storage backend
         if profile.storage_backend != 'core.psql_dos':
             raise ValueError(
@@ -108,6 +155,4 @@ class AirflowDaemon:
                 elif isinstance(config, AirflowTriggererServiceConfig):
                     status_report['services'][f'{config.service_name}']['num_workers'] = config.num_triggerers
 
-        return status_report
-        breakpoint()
         return status_report
