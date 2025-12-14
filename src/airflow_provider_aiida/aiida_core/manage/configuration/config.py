@@ -526,7 +526,7 @@ def from_profile_create_airflow_config(profile: Profile):
     airflow_config.set('api_auth', 'jwt_secret', jwt_secret)
     airflow_config.set('api', 'secret_key', api_secret)
     airflow_config.set('api', 'host', "localhost")
-    airflow_config.set('api', 'port', None)
+    airflow_config.set('api', 'port', "")
 
     with open(airflow_config_file, 'w') as f:
         # Write with all documentation and comments
