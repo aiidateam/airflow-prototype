@@ -122,7 +122,7 @@ class AirflowDaemon:
         from aiida.manage import get_manager 
         manager = get_manager()
         profile = manager.load_profile() if profile_identifier is None else manager.load_profile(profile_identifier)
-a
+
         # Validate profile storage backend
         if profile.storage_backend != 'core.psql_dos':
             raise ValueError(
