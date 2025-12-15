@@ -524,11 +524,11 @@ def from_profile_create_airflow_config(profile: Profile):
     airflow_config.set('database', 'sql_alchemy_conn', db_conn)
     airflow_config.set('dag_processor', 'dag_bundle_config_list', dag_bundle)
     airflow_config.set('api_auth', 'jwt_secret', jwt_secret)
-    airflow_config.set('execution_api', 'jwt_audience')
-    airflow_config.set('api', 'jwt_audience')
+    airflow_config.set('execution_api', 'jwt_audience', f"airflow.provider.aiida:execution:{profile.name}")
+    airflow_config.set('api', 'jwt_audience', f"airflow.provider.aiida:core:{profile.name}")
     airflow_config.set('api', 'secret_key', api_secret)
     airflow_config.set('api', 'host', "localhost")
-    airflow_config.set('api', 'port', "")
+    airflow_config.set('api', 'port', "8080")
 
     with open(airflow_config_file, 'w') as f:
         # Write with all documentation and comments
