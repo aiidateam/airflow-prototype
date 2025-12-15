@@ -58,7 +58,8 @@ class AirflowRestApiClient:
         host: Airflow API host (e.g., 'localhost')
         port: Airflow API port (e.g., 8080)
         jwt_secret: JWT secret for authentication (optional)
-        jwt_audience: JWT audience claim (default: 'apache-airflow')
+        core_api_jwt_audience: JWT audience for core API endpoints (e.g., DAG management)
+        execution_api_jwt_audience: JWT audience for execution API endpoints (e.g., task execution)
         timezone_str: Timezone string for JWT timestamps (default: 'system')
     """
 
@@ -66,9 +67,10 @@ class AirflowRestApiClient:
         self,
         host: str,
         port: int | str,
-        jwt_secret: str | None = None,
-        jwt_audience: str = 'apache-airflow',
-        timezone_str: str = 'system',
+        jwt_secret: str | None,
+        core_api_jwt_audience: str,
+        execution_api_jwt_audience: str,
+        timezone_str: str,
     ):
         # Store connection info
         self._host = host
@@ -77,7 +79,8 @@ class AirflowRestApiClient:
 
         # Store JWT settings
         self._jwt_secret = jwt_secret
-        self._jwt_audience = jwt_audience
+        self._core_api_jwt_audience = core_api_jwt_audience
+        self._execution_api_jwt_audience = execution_api_jwt_audience
         self._timezone_str = timezone_str
 
         # Fix for macOS: Disable proxy detection to avoid fork-safety issues
@@ -103,6 +106,65 @@ class AirflowRestApiClient:
             await self._client.aclose()
             logger.debug("Closed AirflowRestApiClient")
 
+    def _generate_jwt_headers(self, audience: str) -> dict[str, str]:
+        """Generate JWT authentication headers.
+
+        Args:
+            audience: JWT audience claim (e.g., self._core_api_jwt_audience)
+
+        Returns:
+            Dictionary with Content-Type and Authorization headers
+        """
+        import jwt
+        import datetime
+        import uuid
+        from zoneinfo import ZoneInfo
+
+        headers = {
+            'Content-Type': 'application/json',
+        }
+
+        # Generate JWT token if we have the secret
+        if self._jwt_secret:
+            # Get current time in the configured timezone
+            if self._timezone_str.lower() == 'system':
+                # Use system local timezone
+                now_dt = datetime.datetime.now()
+            else:
+                # Use specified timezone
+                try:
+                    tz = ZoneInfo(self._timezone_str)
+                    now_dt = datetime.datetime.now(tz)
+                except Exception:
+                    # Fallback to UTC if timezone is invalid
+                    logger.warning(f"Invalid timezone {self._timezone_str}, using UTC")
+                    now_dt = datetime.datetime.now(datetime.timezone.utc)
+
+            # Convert to UTC timestamp
+            now = int(now_dt.timestamp())
+
+            payload_jwt = {
+                'jti': uuid.uuid4().hex,  # JWT ID
+                'iss': 'airflow',  # Issuer
+                'aud': audience,  # Audience
+                'sub': 'airflow',  # Subject (user identity)
+                'role': 'admin',  # User role (Admin for full permissions)
+                'nbf': now - 10,  # Not before (10 seconds ago to account for clock skew)
+                'exp': now + 300,  # Expiration (5 minutes from now)
+                'iat': now,  # Issued at
+            }
+
+            logger.debug(f"JWT token config: audience={audience}, timezone={self._timezone_str}")
+            logger.debug(f"JWT token timestamps: nbf={payload_jwt['nbf']}, iat={payload_jwt['iat']}, exp={payload_jwt['exp']}")
+
+            # Encode with HS512 algorithm (Airflow's default)
+            token = jwt.encode(payload_jwt, self._jwt_secret, algorithm='HS512', headers={'alg': 'HS512'})
+            headers['Authorization'] = f'Bearer {token}'
+            logger.info("Generated JWT token for authentication (HS512)")
+        else:
+            logger.warning("No JWT secret configured, trying without authentication")
+
+        return headers
 
     async def clear_task_instances_async(
         self,
@@ -129,11 +191,6 @@ class AirflowRestApiClient:
         Returns:
             Response from API as dict
         """
-        import jwt
-        import datetime
-        import uuid
-        from zoneinfo import ZoneInfo
-
         # Call the REST API to clear task instances
         url = f"{self._api_url}/dags/{dag_id}/clearTaskInstances"
         payload = {
@@ -148,49 +205,8 @@ class AirflowRestApiClient:
         logger.info(f"Payload: {payload}")
 
         try:
-            headers = {
-                'Content-Type': 'application/json',
-            }
-
-            # Generate JWT token if we have the secret
-            if self._jwt_secret:
-                # Get current time in the configured timezone
-                if self._timezone_str.lower() == 'system':
-                    # Use system local timezone
-                    now_dt = datetime.datetime.now()
-                else:
-                    # Use specified timezone
-                    try:
-                        tz = ZoneInfo(self._timezone_str)
-                        now_dt = datetime.datetime.now(tz)
-                    except Exception:
-                        # Fallback to UTC if timezone is invalid
-                        logger.warning(f"Invalid timezone {self._timezone_str}, using UTC")
-                        now_dt = datetime.datetime.now(datetime.timezone.utc)
-
-                # Convert to UTC timestamp
-                now = int(now_dt.timestamp())
-
-                payload_jwt = {
-                    'jti': uuid.uuid4().hex,  # JWT ID
-                    'iss': 'airflow',  # Issuer
-                    'aud': self._jwt_audience,  # Audience
-                    'sub': 'airflow',  # Subject (user identity)
-                    'role': 'admin',  # User role (Admin for full permissions)
-                    'nbf': now - 10,  # Not before (10 seconds ago to account for clock skew)
-                    'exp': now + 300,  # Expiration (5 minutes from now)
-                    'iat': now,  # Issued at
-                }
-
-                logger.debug(f"JWT token config: audience={self._jwt_audience}, timezone={self._timezone_str}")
-                logger.debug(f"JWT token timestamps: nbf={payload_jwt['nbf']}, iat={payload_jwt['iat']}, exp={payload_jwt['exp']}")
-
-                # Encode with HS512 algorithm (Airflow's default)
-                token = jwt.encode(payload_jwt, self._jwt_secret, algorithm='HS512', headers={'alg': 'HS512'})
-                headers['Authorization'] = f'Bearer {token}'
-                logger.info("Generated JWT token for authentication (HS512)")
-            else:
-                logger.warning("No JWT secret configured, trying without authentication")
+            # Generate headers with JWT authentication
+            headers = self._generate_jwt_headers(self._core_api_jwt_audience)
 
             # Use the reusable client
             response = await self._client.post(url, json=payload, headers=headers)
@@ -215,6 +231,78 @@ class AirflowRestApiClient:
             logger.error(traceback.format_exc())
             raise
 
+    async def trigger_dag(
+        self,
+        dag_id: str,
+        run_id: str | None = None,
+        conf: dict[str, Any] | None = None,
+        logical_date: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Trigger a DAG run via Airflow REST API (async).
+
+        This function can be safely called from triggers and other async contexts.
+
+        Args:
+            dag_id: The DAG ID to trigger
+            run_id: Optional custom run ID (Airflow will generate one if not provided)
+            conf: Optional configuration JSON to pass to the DAG
+            logical_date: Optional execution/logical date (ISO 8601 format)
+            note: Optional note/description for this DAG run
+
+        Returns:
+            Response from API as dict containing DAG run details
+
+        Example:
+            >>> response = await client.trigger_dag(
+            ...     dag_id="ArithmeticAddCalculation",
+            ...     conf={"process_pk": 12345, "aiida_profile": "my-profile"}
+            ... )
+        """
+        # Build the API endpoint URL
+        url = f"{self._api_url}/dags/{dag_id}/dagRuns"
+
+        # Build request payload with only non-None values
+        payload = {}
+        if run_id is not None:
+            payload["dag_run_id"] = run_id
+        if conf is not None:
+            payload["conf"] = conf
+        if logical_date is not None:
+            payload["logical_date"] = logical_date
+        if note is not None:
+            payload["note"] = note
+
+        logger.info(f"Triggering DAG via REST API: {url}")
+        logger.debug(f"Payload: {payload}")
+
+        try:
+            # Generate headers with JWT authentication
+            headers = self._generate_jwt_headers(self._core_api_jwt_audience)
+
+            # Use the reusable client
+            response = await self._client.post(url, json=payload, headers=headers)
+
+            logger.info(f"Response status code: {response.status_code}")
+            logger.debug(f"Response headers: {response.headers}")
+            logger.debug(f"Response text: {response.text}")
+
+            response.raise_for_status()
+            result = response.json()
+            logger.info(f"Successfully triggered DAG run: {result.get('dag_run_id', 'unknown')}")
+            return result
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error: {e}")
+            logger.error(f"Response status: {e.response.status_code}")
+            logger.error(f"Response body: {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to trigger DAG via REST API: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise
 
 
 class AirflowRestApiClientManager:
@@ -263,8 +351,8 @@ class AirflowRestApiClientManager:
         config.read(config_file)
 
         # Read webserver host and port (REST API is served by webserver)
-        host = config.get('webserver', 'web_server_host', fallback=None)
-        port_str = config.get('webserver', 'web_server_port', fallback=None)
+        host = config.get('api', 'host', fallback=None)
+        port_str = config.get('api', 'port', fallback=None)
 
         # Host is required
         if host is None:
@@ -272,11 +360,6 @@ class AirflowRestApiClientManager:
                 f"Missing 'web_server_host' in [webserver] section of {config_file}. "
                 "Please configure the Airflow webserver host."
             )
-
-        # Special handling: if host is 0.0.0.0, use localhost for client
-        # (0.0.0.0 is for binding server, localhost for connecting)
-        if host == '0.0.0.0':
-            host = 'localhost'
 
         # If port not configured, get a free port from OS
         if port_str is None:
@@ -286,8 +369,9 @@ class AirflowRestApiClientManager:
             port = int(port_str)
 
         # Read JWT settings
-        jwt_secret = config.get('api_auth', 'jwt_secret', fallback=None)
-        jwt_audience = config.get('api_auth', 'jwt_audience', fallback='apache-airflow')
+        jwt_secret = config.get('api', 'jwt_secret', fallback=None)
+        core_api_jwt_audience = config.get('api_auth', 'jwt_audience', fallback='apache-airflow')
+        execution_api_jwt_audience = config.get('execution_api', 'jwt_audience', fallback='apache-airflow')
 
         # Read timezone
         timezone_str = config.get('core', 'default_timezone', fallback='system')
@@ -299,7 +383,8 @@ class AirflowRestApiClientManager:
             host=host,
             port=port,
             jwt_secret=jwt_secret,
-            jwt_audience=jwt_audience,
+            core_api_jwt_audience=core_api_jwt_audience,
+            execution_api_jwt_audience=execution_api_jwt_audience,
             timezone_str=timezone_str,
         )
 
