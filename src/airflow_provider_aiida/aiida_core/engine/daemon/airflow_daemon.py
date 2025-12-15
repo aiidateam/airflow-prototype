@@ -71,20 +71,6 @@ class AirflowApiServerEnv(TypedDict):
     AIRFLOW__API__PORT: str 
 
 
-def get_free_port() -> int:
-    """Get a free port from the OS.
-
-    This uses the OS's ephemeral port allocation to find an available port.
-    The OS guarantees that the port is currently free.
-    """
-    import socket
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0))
-        s.listen(1)
-        port = s.getsockname()[1]
-    return port
-
-
 @dataclass
 class AirflowApiServerServiceConfig(NonWorkerServiceConfig):
     # We do not want any limit on this
@@ -98,22 +84,8 @@ class AirflowApiServerServiceConfig(NonWorkerServiceConfig):
         airflow_config_file = Path(self.airflow_home) / 'airflow.cfg'
         airflow_config.read(airflow_config_file)
 
-        
-        if (host := airflow_config.get('api', 'host')) is None:
-            # TODO polish error msg
-            raise ValueError("Cannot be None")
-        
-        # Get a free port from the OS
-        if (port := airflow_config.get('api', 'port')) is None:
-            port = get_free_port()
-            logger.info("No port found in config")
-
-        # You can now use this port for the API server
-        # For example, set it in environment variables:
         return {
             'AIRFLOW_HOME': self.airflow_home,
-            'AIRFLOW__API__PORT': str(port),
-            'AIRFLOW__API__HOST': host,
         }
 
 class AirflowDaemon:

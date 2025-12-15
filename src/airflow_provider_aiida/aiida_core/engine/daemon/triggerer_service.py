@@ -131,6 +131,19 @@ class TriggererService:
         self.stop()
         sys.exit(0)
 
+# TODO move to some network util
+def get_free_port() -> int:
+    """Get a free port from the OS.
+
+    This uses the OS's ephemeral port allocation to find an available port.
+    The OS guarantees that the port is currently free.
+    """
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return port
 
 
 

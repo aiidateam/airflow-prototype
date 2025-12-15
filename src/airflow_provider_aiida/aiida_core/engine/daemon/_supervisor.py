@@ -39,7 +39,7 @@ Key Features:
 # Services need to be able to be started by the command line
 # Worker and reglar servivces are conceptual separated
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 import os
 import re
 import sys
@@ -153,10 +153,11 @@ SERVICE_CONFIG_REGISTRY: Dict[str, Type["ServiceConfig"]] = {}
 @dataclass
 class ServiceConfig(ABC):
     # TODO rename to service_identifier?
-    service_name: ClassVar[str] 
+    service_name: ClassVar[str]
     command: ClassVar[str]
     # TODO cleaner with some schema
-    env: dict[str, str] 
+    # env is excluded from __init__ and set via create_unique_env()
+    env: dict[str, str] = field(init=False, default_factory=dict) 
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -211,6 +212,7 @@ class ServiceConfigFactory:
 
         # have to remove class variables before init
         values.pop("command")
+        values.pop("env")
         return cls(**values)
 
 class ServiceConfigMap:
@@ -282,7 +284,6 @@ class SupervisorInfo(ProcessInfo, JsonSerialization):
 class ServiceSupervisorCommon:
     SUPERVISOR_INFO_FILE = "supervisor_info.json"
     SUPERVISOR_CONFIG_FILE = "supervisor_config.json"
-    # TODO split log
     SUPERVISOR_LOG_FILE = "supervisor.log"
     PROCESS_INFO_FILE = "info.json"
     KILL_TIMEOUT = 10.0
