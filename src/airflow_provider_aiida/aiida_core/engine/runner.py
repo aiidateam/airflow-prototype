@@ -171,83 +171,46 @@ class AirflowRunner(Runner):
         process_inited_dag_id = process_inited.__class__.__name__ # TODO .build_process_type().replace(":", "-")
 
         if self._broker_submit:
+            # Use sync REST API client to trigger DAG
+            from airflow_provider_aiida.utils.airflow_restapi import get_airflow_rest_api_client_sync
             from aiida import get_profile
             from aiida.common.exceptions import ConfigurationError
+            import os
 
+            # Get AiiDA profile
             try:
                 aiida_profile = get_profile()
             except ConfigurationError:
                 from airflow_provider_aiida.aiida_core import load_profile
                 aiida_profile = load_profile()
 
-            import os
+            # Get AIIDA_PATH if set
             aiida_path = os.getenv("AIIDA_PATH", None)
 
-            import subprocess
-            import sys
-            # TODO we need to pass the environ from the operator
-            code_snippet = f"""
-import os
-import sys
+            # Prepare DAG trigger configuration
+            conf = {
+                'process_pk': process_inited.pid,
+                'aiida_profile': aiida_profile.name,
+                'aiida_path': aiida_path
+            }
 
-# Debug: Print environment info
-print(f"AIRFLOW_HOME: {{os.environ.get('AIRFLOW_HOME', 'NOT SET')}}", file=sys.stdout)
-print(f"Working dir: {{os.getcwd()}}", file=sys.stdout)
-print(f"Python: {{sys.executable}}", file=sys.stdout)
+            # Get sync REST API client
+            client = get_airflow_rest_api_client_sync(aiida_profile.name)
 
-# Check what SQL connection Airflow is trying to use
-from airflow.configuration import conf
-sql_conn = conf.get('database', 'sql_alchemy_conn', fallback='NOT SET')
-print(f"SQL connection: {{sql_conn if sql_conn != 'NOT SET' else 'NOT SET'}}", file=sys.stderr)
-
-# NOTE: Raises error when not successfull, the typehint None is a bit confusing, it should not happen 
-from airflow.api.common import trigger_dag
-from airflow.utils.types import DagRunTriggeredByType
-
-conf={{'process_pk': {process_inited.pid},
-       'aiida_profile': {aiida_profile!r},
-       'aiida_path': {aiida_path!r}
-}}
-
-trigger_dag.trigger_dag(
-    dag_id={process_inited_dag_id!r},
-    triggered_by=DagRunTriggeredByType.CLI,
-    run_id=None,
-    conf=conf,
-    logical_date=None,
-    replace_microseconds=True,
-)
-"""
-            from pathlib import Path
-            import os
-            import tempfile
-
-            # Create a temporary file for the trigger script
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-                _LOGGER.info(f"Creating temporary file in {f.name}")
-                f.write(code_snippet)
-                code_py = Path(f.name)
-
-            # Call the trigger script via subprocess
-            proc = subprocess.Popen(
-                [
-                    sys.executable,
-                    str(code_py),
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env={}, # NOTE: the triggerer has enviroment variables that clash with triggering api
-                cwd=os.getcwd()
-            )
-
-            stdout, stderr = proc.communicate()
-            if stdout:
-                _LOGGER.debug(f"DAG trigger {process_inited_dag_id} output: {stdout}")
-            if proc.returncode != 0:
-                _LOGGER.error(f"DAG trigger {process_inited_dag_id} failed with return code {proc.returncode}")
-            if stderr:
-                _LOGGER.error(f"DAG trigger {process_inited_dag_id} error: {stderr}")
+            # Trigger the DAG
+            try:
+                _LOGGER.info(f"Triggering DAG {process_inited_dag_id} for process {process_inited.pid}")
+                response = client.trigger_dag(
+                    dag_id=process_inited_dag_id,
+                    run_id=None,
+                    conf=conf,
+                    logical_date=None,
+                    note=f"Triggered by AiiDA process {process_inited.pid}"
+                )
+                _LOGGER.info(f"DAG {process_inited_dag_id} triggered successfully: {response.get('dag_run_id', 'unknown')}")
+            except Exception as e:
+                _LOGGER.error(f"Failed to trigger DAG {process_inited_dag_id}: {e}")
+                raise
 
         else:
             self.loop.create_task(process_inited.step_until_terminated())
