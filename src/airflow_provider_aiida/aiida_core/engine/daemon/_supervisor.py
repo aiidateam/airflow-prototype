@@ -9,17 +9,14 @@ daemon/
 │   │   ├── worker_service_config.json     # config how to start the worker service
 │   │   ├── 1/
 │   │   │   ├── info.json          # PID, state, timestamps, failure count
-│   │   │   ├── stdout.log         # Service stdout
-│   │   │   └── stderr.log         # Service stderr
-│   │   └── 2/   
+│   │   │   └── output.log         # Service stdout and stderr combined
+│   │   └── 2/
 │   │       ├── info.json  # PID, state, timestamps, failure count
-│   │       ├── stdout.log         # Service stdout
-│   │       └── stderr.log         # Service stderr
+│   │       └── output.log         # Service stdout and stderr combined
 │   └── <service_name>/
 │       ├── service_config.json    # config how to start the service
 │       ├── info.json      # PID, state, timestamps, failure count
-│       ├── stdout.log             # Service stdout
-│       └── stderr.log             # Service stderr
+│       └── output.log             # Service stdout and stderr combined
 ├── supervisor_info.json           # Single daemon PID file
 ├── supervisor_config.json         # Single daemon PID file
 └── supervisor.log                 # Daemon output (background mode only)
@@ -300,20 +297,17 @@ class ServiceSupervisorCommon:
     def _start_process(process_dir: Path, config: ServiceConfig, info: ServiceInfo | None = None):
         process_dir.mkdir(parents=True, exist_ok=True)
 
-        # Open log files in service directory
-        stdout_log = process_dir / "stdout.log"
-        stderr_log = process_dir / "stderr.log"
-
-        stdout_file = open(stdout_log, 'a', buffering=1)
-        stderr_file = open(stderr_log, 'a', buffering=1)
+        # Open combined log file for both stdout and stderr in service directory
+        output_log = process_dir / "output.log"
+        output_file = open(output_log, 'a', buffering=1)
 
         # Get unique environment for this service
         service_env = config.create_unique_env()
 
         process = subprocess.Popen(
             config.command.split(),
-            stdout=stdout_file,
-            stderr=stderr_file,
+            stdout=output_file,
+            stderr=output_file,  # Redirect stderr to same file as stdout
             env=os.environ | service_env,
             start_new_session=True  # Create new process group
         )
@@ -881,8 +875,7 @@ class ServiceSupervisorController:
                             'started': float or None,
                             'last_check': float or None,
                             'failures': int or None,
-                            'stdout_log': str or None,
-                            'stderr_log': str or None,
+                            'output_log': str or None,
                             'error': str or None
                         },
                         'worker-service-name': {
@@ -895,8 +888,7 @@ class ServiceSupervisorController:
                                     'started': float or None,
                                     'last_check': float or None,
                                     'failures': int or None,
-                                    'stdout_log': str or None,
-                                    'stderr_log': str or None,
+                                    'output_log': str or None,
                                     'error': str or None
                                 },
                                 ...
@@ -962,8 +954,7 @@ class ServiceSupervisorController:
                     'started': None,
                     'last_check': None,
                     'failures': None,
-                    'stdout_log': None,
-                    'stderr_log': None,
+                    'output_log': None,
                     'error': None
                 }
 
@@ -977,8 +968,7 @@ class ServiceSupervisorController:
                             'started': info.create_time,
                             'last_check': info.last_check,
                             'failures': info.failures,
-                            'stdout_log': str(service_dir / 'stdout.log'),
-                            'stderr_log': str(service_dir / 'stderr.log')
+                            'output_log': str(service_dir / 'output.log')
                         })
                     except Exception as e:
                         service_entry['error'] = f"Could not read info file - {e}"
@@ -1005,8 +995,7 @@ class ServiceSupervisorController:
                         'started': None,
                         'last_check': None,
                         'failures': None,
-                        'stdout_log': None,
-                        'stderr_log': None,
+                        'output_log': None,
                         'error': None
                     }
 
@@ -1020,8 +1009,7 @@ class ServiceSupervisorController:
                                 'started': info.create_time,
                                 'last_check': info.last_check,
                                 'failures': info.failures,
-                                'stdout_log': str(worker_dir / 'stdout.log'),
-                                'stderr_log': str(worker_dir / 'stderr.log')
+                                'output_log': str(worker_dir / 'output.log')
                             })
                         except Exception as e:
                             worker_entry['error'] = f"Could not read info file - {e}"

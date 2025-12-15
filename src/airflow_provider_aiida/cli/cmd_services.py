@@ -212,10 +212,8 @@ def daemon_status(debug):
                         click.echo(f"  {'Started:':<28} {time.ctime(service_info['started'])}")
                     if service_info.get('last_check'):
                         click.echo(f"  {'Last Check:':<28} {time.ctime(service_info['last_check'])}")
-                    if service_info.get('stdout_log'):
-                        click.echo(f"  {'Stdout Log:':<28} {service_info['stdout_log']}")
-                    if service_info.get('stderr_log'):
-                        click.echo(f"  {'Stderr Log:':<28} {service_info['stderr_log']}")
+                    if service_info.get('output_log'):
+                        click.echo(f"  {'Output Log:':<28} {service_info['output_log']}")
                     if service_info.get('command'):
                         click.echo(f"  {'Command:':<28} {service_info['command']}")
                     click.echo()  # Blank line between services
@@ -243,10 +241,8 @@ def daemon_status(debug):
                             click.echo(f"  {'Started:':<28} {time.ctime(worker_info['started'])}")
                         if worker_info.get('last_check'):
                             click.echo(f"  {'Last Check:':<28} {time.ctime(worker_info['last_check'])}")
-                        if worker_info.get('stdout_log'):
-                            click.echo(f"  {'Stdout Log:':<28} {worker_info['stdout_log']}")
-                        if worker_info.get('stderr_log'):
-                            click.echo(f"  {'Stderr Log:':<28} {worker_info['stderr_log']}")
+                        if worker_info.get('output_log'):
+                            click.echo(f"  {'Output Log:':<28} {worker_info['output_log']}")
                         if service_info.get('command'):
                             click.echo(f"  {'Command:':<28} {service_info['command']}")
                         click.echo()  # Blank line between workers
