@@ -96,7 +96,7 @@ class AirflowRunner(Runner):
         try:
             aiida_profile = get_profile()
         except ConfigurationError:
-            from aiida import load_profile
+            from airflow_provider_aiida.aiida_core import load_profile
             aiida_profile = load_profile()
 
         import os
@@ -177,7 +177,7 @@ class AirflowRunner(Runner):
             try:
                 aiida_profile = get_profile()
             except ConfigurationError:
-                from aiida import load_profile
+                from airflow_provider_aiida.aiida_core import load_profile
                 aiida_profile = load_profile()
 
             import os

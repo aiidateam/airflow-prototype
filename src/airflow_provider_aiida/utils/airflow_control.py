@@ -27,7 +27,7 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     # NOTE: this conflicts if profiles from different aiida paths are used
     if aiida_path is not None:
         os.environ["AIIDA_PATH"] = aiida_path
-    from aiida import load_profile
+    from airflow_provider_aiida.aiida_core import load_profile
     load_profile(aiida_profile)
     from plumpy.persistence import LoadSaveContext
     loop = get_current_event_loop()
