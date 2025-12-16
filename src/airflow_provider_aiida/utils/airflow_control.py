@@ -20,6 +20,9 @@ def get_current_event_loop() -> 'AbstractEventLoop':
         asyncio.set_event_loop(loop)
     return loop
 
+from plumpy.base.utils import super_check
+
+
 def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | None):
     """reenters same state"""
     import os
@@ -37,6 +40,16 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     proc._runner = runner
     # NOTE: Overwrite persisted loop since loop might have changed
     proc._loop = loop
+    def on_waiting() -> None:
+        """Entered the WAITING state."""
+        proc.__class__.__bases__[0].on_waiting(proc)
+        if proc._awaitables:
+            proc._action_awaitables()
+        else:
+            proc.call_soon(proc.resume)
+    #on_waiting = super_check(patched_on_waiting)
+    on_waiting.__self__ = proc
+    proc.on_waiting = on_waiting
     return proc
 
 

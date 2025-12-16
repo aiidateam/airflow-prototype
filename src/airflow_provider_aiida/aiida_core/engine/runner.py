@@ -170,53 +170,59 @@ class AirflowRunner(Runner):
         self.persister.save_checkpoint(process_inited)
         process_inited_dag_id = process_inited.__class__.__name__ # TODO .build_process_type().replace(":", "-")
 
-        if self._broker_submit:
-            # Use sync REST API client to trigger DAG
-            from airflow_provider_aiida.utils.airflow_restapi import get_airflow_rest_api_client_sync
-            from aiida import get_profile
-            from aiida.common.exceptions import ConfigurationError
-            import os
+        # Use sync REST API client to trigger DAG
+        from aiida import get_profile
+        from aiida.common.exceptions import ConfigurationError
+        import os
 
-            # Get AiiDA profile
-            try:
-                aiida_profile = get_profile()
-            except ConfigurationError:
-                from airflow_provider_aiida.aiida_core import load_profile
-                aiida_profile = load_profile()
+        # Get AiiDA profile
+        try:
+            aiida_profile = get_profile()
+        except ConfigurationError:
+            from airflow_provider_aiida.aiida_core import load_profile
+            aiida_profile = load_profile()
 
-            # Get AIIDA_PATH if set
-            aiida_path = os.getenv("AIIDA_PATH", None)
+        # Get AIIDA_PATH if set
+        aiida_path = os.getenv("AIIDA_PATH", None)
 
-            # Prepare DAG trigger configuration
-            conf = {
-                'process_pk': process_inited.pid,
-                'aiida_profile': aiida_profile.name,
-                'aiida_path': aiida_path
-            }
+        # Prepare DAG trigger configuration
+        conf = {
+            'process_pk': process_inited.pid,
+            'aiida_profile': aiida_profile.name,
+            'aiida_path': aiida_path
+        }
 
-            # Get sync REST API client
-            client = get_airflow_rest_api_client_sync(aiida_profile.name)
+        # Get sync REST API client
+        # Trigger the DAG
+        trigger_dag_kwargs = dict(
+            dag_id=process_inited_dag_id,
+            run_id=None,
+            conf=conf,
+            logical_date=None,
+        )
 
-            # Trigger the DAG
-            try:
-                _LOGGER.info(f"Triggering DAG {process_inited_dag_id} for process {process_inited.pid}")
-                response = client.trigger_dag(
-                    dag_id=process_inited_dag_id,
-                    run_id=None,
-                    conf=conf,
-                    logical_date=None,
-                    note=f"Triggered by AiiDA process {process_inited.pid}"
-                )
+        try:
+            _LOGGER.info(f"Triggering DAG {process_inited_dag_id} for process {process_inited.pid}")
+            if self._broker_submit:
+                trigger_dag_kwargs.update(dict(note=f"Triggered by AiiDA process {process_inited.pid}"))
+                from airflow_provider_aiida.utils.airflow_restapi import get_airflow_rest_api_client_sync
+                client = get_airflow_rest_api_client_sync(aiida_profile.name)
+                response = client.trigger_dag(**trigger_dag_kwargs)
                 _LOGGER.info(f"DAG {process_inited_dag_id} triggered successfully: {response.get('dag_run_id', 'unknown')}")
-            except Exception as e:
-                _LOGGER.error(f"Failed to trigger DAG {process_inited_dag_id}: {e}")
-                raise
+            else:
+                from airflow.api.common.trigger_dag import trigger_dag
+                from airflow.utils.types import DagRunTriggeredByType
+                trigger_dag_kwargs.update(dict(triggered_by=DagRunTriggeredByType.CLI))
+                result = trigger_dag(**trigger_dag_kwargs)
+                _LOGGER.info(f"DAG {process_inited_dag_id} triggered successfully: {result}")
+        except Exception as e:
+            _LOGGER.error(f"Failed to trigger DAG {process_inited_dag_id}: {e}")
+            raise
 
-        else:
-            self.loop.create_task(process_inited.step_until_terminated())
         return process_inited.node
 
     def call_on_process_finish(self, pk: int, callback: Callable[[], Any]) -> None:
+        # TODO not needed
         import functools
         from aiida.orm import load_node
         import uuid

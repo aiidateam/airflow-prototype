@@ -6,6 +6,7 @@ allowing CalcJob operations to be performed asynchronously in the Airflow trigge
 
 import logging
 from typing import Any, AsyncIterator 
+from plumpy.process_states import ProcessState
 
 from airflow.triggers.base import BaseTrigger, TriggerEvent
 from airflow_provider_aiida.utils.airflow_control import load_process
@@ -41,17 +42,24 @@ class ProcStepUntilTerminatedTrigger(BaseTrigger):
 
     async def run(self) -> AsyncIterator[TriggerEvent]:
         """Execute the upload task."""
+        state = None
         try:
             proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path)
-            await proc.step_until_terminated()
-            result = proc.future().result()
+            state = proc._state.LABEL 
+            while not proc.has_terminated():
+                if (state := proc._state.LABEL) != ProcessState.WAITING:
+                    yield TriggerEvent({
+                        "status": "success",
+                        "state": f"{state}",
+                    })
+                await proc.step()
 
             yield TriggerEvent({
                 "status": "success",
+                "state": f"{state}",
             })
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
             logger.exception(f"Step until terminated task failed for node {self.process_pk}")
-            yield TriggerEvent({"status": "error", "message": str(e), "traceback": tb})
-
+            yield TriggerEvent({"status": "error", "state": f"{state}", "message": str(e), "traceback": tb})
