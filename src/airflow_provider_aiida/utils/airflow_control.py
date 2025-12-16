@@ -26,12 +26,27 @@ from plumpy.base.utils import super_check
 def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | None):
     """reenters same state"""
     import os
+    import logging
+
     # TODO find a solution that gives understandable error message
     # NOTE: this conflicts if profiles from different aiida paths are used
     if aiida_path is not None:
         os.environ["AIIDA_PATH"] = aiida_path
     from airflow_provider_aiida.aiida_core import load_profile
     load_profile(aiida_profile)
+
+    # Configure logging to handle AiiDA's custom REPORT level
+    # AiiDA uses REPORT (level 23) for process reporting, but Airflow doesn't recognize it
+    # We need to add this level to Python's logging system or filter it out
+    REPORT_LEVEL = 23
+    if not hasattr(logging, 'REPORT'):
+        logging.addLevelName(REPORT_LEVEL, 'REPORT')
+        # Add a custom REPORT method to the Logger class
+        def report(self, message, *args, **kwargs):
+            if self.isEnabledFor(REPORT_LEVEL):
+                self._log(REPORT_LEVEL, message, args, **kwargs)
+        logging.Logger.report = report
+
     from plumpy.persistence import LoadSaveContext
     loop = get_current_event_loop()
     runner = AirflowRunner(loop=loop)
@@ -40,16 +55,22 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     proc._runner = runner
     # NOTE: Overwrite persisted loop since loop might have changed
     proc._loop = loop
+
     def on_waiting() -> None:
-        """Entered the WAITING state."""
         proc.__class__.__bases__[0].on_waiting(proc)
         if proc._awaitables:
             proc._action_awaitables()
         else:
             proc.call_soon(proc.resume)
-    #on_waiting = super_check(patched_on_waiting)
     on_waiting.__self__ = proc
     proc.on_waiting = on_waiting
+
+    def on_wait(awaitables):
+        proc.__class__.__bases__[0].on_waiting(proc)
+        pass
+    on_wait.__self__ = proc
+    proc.on_wait = on_wait
+
     return proc
 
 

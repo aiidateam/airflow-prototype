@@ -92,7 +92,7 @@ def submit(
     from airflow.api.common import trigger_dag
     trigger_dag.trigger_dag(
         dag_id=dag_id,
-        triggered_by=DagRunTriggeredByType.CLI,
+        triggered_by=DagRunTriggeredByType .CLI,
         run_id=None,
         conf=conf,
         logical_date=None,

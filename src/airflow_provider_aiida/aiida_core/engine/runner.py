@@ -43,7 +43,7 @@ class AirflowRunner(Runner):
         self,
         poll_interval: Union[int, float] = 0,
         loop: Optional[asyncio.AbstractEventLoop] = None,
-        broker_submit = False,
+        broker_submit = True,
     ):
         """Construct a new runner.
 
@@ -61,9 +61,9 @@ class AirflowRunner(Runner):
         self._job_manager = manager.JobManager(self._transport)
         self._persister = AiiDAPersister()
         self._plugin_version_provider = PluginVersionProvider()
-
+        #from airflow.configuration import conf
+        #self._broker_submit = conf.get("database", "sql_alchemy_conn", None) == "airflow-db-not-allowed:///"
         self._broker_submit = broker_submit
-
 
     def _run(
         self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any
@@ -210,9 +210,12 @@ class AirflowRunner(Runner):
                 response = client.trigger_dag(**trigger_dag_kwargs)
                 _LOGGER.info(f"DAG {process_inited_dag_id} triggered successfully: {response.get('dag_run_id', 'unknown')}")
             else:
+                # TODO need to do something else
+                #self.loop.create_task(process_inited.step_until_terminated()
+
                 from airflow.api.common.trigger_dag import trigger_dag
                 from airflow.utils.types import DagRunTriggeredByType
-                trigger_dag_kwargs.update(dict(triggered_by=DagRunTriggeredByType.CLI))
+                trigger_dag_kwargs.update(dict(triggered_by=DagRunTriggeredByType.TEST))
                 result = trigger_dag(**trigger_dag_kwargs)
                 _LOGGER.info(f"DAG {process_inited_dag_id} triggered successfully: {result}")
         except Exception as e:
