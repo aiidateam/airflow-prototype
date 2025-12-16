@@ -669,9 +669,9 @@ class AirflowRestApiClientManager:
             port = int(port_str)
 
         # Read JWT settings
-        jwt_secret = config.get('api', 'jwt_secret', fallback=None)
-        core_api_jwt_audience = config.get('api_auth', 'jwt_audience', fallback='apache-airflow')
-        execution_api_jwt_audience = config.get('execution_api', 'jwt_audience', fallback='apache-airflow')
+        jwt_secret = config.get('api_auth', 'jwt_secret', fallback=None)
+        core_api_jwt_audience = config.get('api', 'jwt_audience', fallback=None)
+        execution_api_jwt_audience = config.get('execution_api', 'jwt_audience', fallback=None)
 
         # Read timezone
         timezone_str = config.get('core', 'default_timezone', fallback='system')
