@@ -3,6 +3,9 @@
 These operators provide async execution of AiiDA CalcJob transport tasks by deferring
 to the corresponding triggers that wrap aiida-core's task functions.
 """
+
+import logging
+
 from airflow.models import BaseOperator
 from plumpy.process_states import ProcessState
 from airflow_provider_aiida.triggers.process import ProcStepUntilTerminatedTrigger
@@ -10,6 +13,7 @@ from airflow_provider_aiida.utils.airflow_control import set_dag_run_id, load_pr
 
 from airflow.utils.context import Context
 
+logger = logging.getLogger(__name__)
 
 class ProcStepUntilTerminatedOperator(BaseOperator):
 
@@ -35,7 +39,9 @@ class ProcStepUntilTerminatedOperator(BaseOperator):
 
         # Try to get dag_run_id from context and set it on the node
         set_dag_run_id(node, context['run_id'])
-        proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path)
+        broker_submit = context["dag_run"].triggering_user_name == "dag_test"
+
+        proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path, broker_submit)
         coro = self._continue_run_aiida_process(proc)
         # TODO really not nice how runner is retrieved
         proc._runner.loop.run_until_complete(coro)

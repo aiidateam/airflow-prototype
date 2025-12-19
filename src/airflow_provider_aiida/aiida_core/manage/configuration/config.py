@@ -523,10 +523,15 @@ def from_profile_create_airflow_config(profile: Profile):
     airflow_config.set('core', 'fernet_key', fernet_key)
     airflow_config.set('database', 'sql_alchemy_conn', db_conn)
     airflow_config.set('dag_processor', 'dag_bundle_config_list', dag_bundle)
-    airflow_config.set('api_auth', 'jwt_secret', jwt_secret)
-    airflow_config.set('execution_api', 'jwt_audience', f"airflow.provider.aiida:execution:{profile.name}")
-    airflow_config.set('api', 'jwt_audience', f"airflow.provider.aiida:core:{profile.name}")
-    airflow_config.set('api', 'secret_key', api_secret)
+    # TODO makes problems when logging into ui
+    # TODO when I remove jwt secret however it does not work for direct orm database access
+    #      I am confused
+    #airflow_config.set('api_auth', 'jwt_secret', jwt_secret)
+    #airflow_config.set('api_auth', 'jwt_secret', "")
+    #airflow_config.set('execution_api', 'jwt_audience', f"airflow.provider.aiida:execution:{profile.name}")
+    airflow_config.set('api_auth', 'jwt_audience', f"airflow.provider.aiida:core:{profile.name}")
+    # TODO needed?
+    #airflow_config.set('api', 'secret_key', api_secret)
     airflow_config.set('api', 'host', "localhost")
     airflow_config.set('api', 'port', "8080")
 

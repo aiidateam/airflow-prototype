@@ -43,7 +43,7 @@ class AirflowRunner(Runner):
         self,
         poll_interval: Union[int, float] = 0,
         loop: Optional[asyncio.AbstractEventLoop] = None,
-        broker_submit = True,
+        broker_submit = False,
     ):
         """Construct a new runner.
 
@@ -63,7 +63,7 @@ class AirflowRunner(Runner):
         self._plugin_version_provider = PluginVersionProvider()
         #from airflow.configuration import conf
         #self._broker_submit = conf.get("database", "sql_alchemy_conn", None) == "airflow-db-not-allowed:///"
-        self._broker_submit = broker_submit
+        self._broker_submit = True 
 
     def _run(
         self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any
@@ -211,19 +211,29 @@ class AirflowRunner(Runner):
                 _LOGGER.info(f"DAG {process_inited_dag_id} triggered successfully: {response.get('dag_run_id', 'unknown')}")
             else:
                 # TODO need to do something else
-                #self.loop.create_task(process_inited.step_until_terminated()
+                #self.loop.create_task(process_inited.step_until_terminated())
 
-                from airflow.api.common.trigger_dag import trigger_dag
-                from airflow.utils.types import DagRunTriggeredByType
-                trigger_dag_kwargs.update(dict(triggered_by=DagRunTriggeredByType.TEST))
-                result = trigger_dag(**trigger_dag_kwargs)
-                _LOGGER.info(f"DAG {process_inited_dag_id} triggered successfully: {result}")
+                # Load the DAG from DagBag and test it
+                from airflow.models.dagbag import DagBag
+
+                dag_bag = DagBag()
+                dag = dag_bag.get_dag(process_inited_dag_id)
+
+                if dag is None:
+                    raise ValueError(f"DAG '{process_inited_dag_id}' not found in DagBag")
+                dag.test(run_conf=conf)
+
+                #from airflow.api.common.trigger_dag import trigger_dag
+                #from airflow.utils.types import DagRunTriggeredByType
+                #trigger_dag_kwargs.update(dict(triggered_by=DagRunTriggeredByType.TEST))
+                #result = trigger_dag(**trigger_dag_kwargs)
+                #_LOGGER.info(f"DAG {process_inited_dag_id} triggered successfully: {result}")
         except Exception as e:
             _LOGGER.error(f"Failed to trigger DAG {process_inited_dag_id}: {e}")
             raise
-
         return process_inited.node
 
+    # TODO not needed anymore
     def call_on_process_finish(self, pk: int, callback: Callable[[], Any]) -> None:
         # TODO not needed
         import functools
@@ -253,6 +263,7 @@ class AirflowRunner(Runner):
 
         self._poll_process(node, functools.partial(inline_callback, event))
 
+    # TODO not needed anymore
     def _poll_process(self, node, callback):
         """Check whether the process state of the node is terminated and call the callback or reschedule it.
 

@@ -5,6 +5,7 @@ allowing CalcJob operations to be performed asynchronously in the Airflow trigge
 """
 
 import logging
+import asyncio
 from typing import Any, AsyncIterator 
 from plumpy.process_states import ProcessState
 
@@ -13,7 +14,6 @@ from airflow_provider_aiida.utils.airflow_control import load_process
 
 
 logger = logging.getLogger(__name__)
-
 
 class ProcStepUntilTerminatedTrigger(BaseTrigger):
     """Trigger that executes the AiiDA task_upload_job function."""
@@ -42,6 +42,7 @@ class ProcStepUntilTerminatedTrigger(BaseTrigger):
 
     async def run(self) -> AsyncIterator[TriggerEvent]:
         """Execute the upload task."""
+        from aiida.common import exceptions
         state = None
         try:
             proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path)
@@ -52,6 +53,29 @@ class ProcStepUntilTerminatedTrigger(BaseTrigger):
                         "status": "success",
                         "state": f"{state}",
                     })
+
+                if hasattr(proc, "_awaitables"):
+                    # TODO not really nice to add workchain
+                    if proc._awaitables:
+                        from aiida.orm import load_node
+                        while any([not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]):
+                            proc.report(f'Update asleep {[not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]}')
+                            await asyncio.sleep(1)
+
+                        for awaitable in proc._awaitables:
+                            proc.logger.info('received callback that awaitable %d has terminated', awaitable.pk)
+
+                            try:
+                                node = load_node(awaitable.pk)
+                            except (exceptions.MultipleObjectsError, exceptions.NotExistent):
+                                raise ValueError(f'provided pk<{awaitable.pk}> could not be resolved to a valid Node instance')
+                            if awaitable.outputs:
+                                value = {entry.link_label: entry.node for entry in node.base.links.get_outgoing()}
+                            else:
+                                value = node  # type: ignore[assignment]
+
+                            proc._resolve_awaitable(awaitable, value)
+                        proc.resume()
                 await proc.step()
 
             yield TriggerEvent({

@@ -55,6 +55,8 @@ def submit(
     assert runner.persister is not None, 'runner does not have a persister'
 
     process_inited = instantiate_process(runner, process, **inputs)
+    # TODO make enum out of the key
+    #process_inited.node.extras["_airflow_provider_aiida__broker_submit"] = True
 
     # If adry run is requested, simply forward to `run`, because it is not compatible with `submit`. We choose for this
     # instead of raising, because in this way the user does not have to change the launcher when testing. The same goes
@@ -88,11 +90,21 @@ def submit(
             "aiida_path": aiida_path
             }
 
-    # NOTE: Raises error when not successfull, the typehint None is a bit confusing, it should not happen 
+    # Load the DAG from DagBag and test it
+    from airflow.models.dagbag import DagBag
+
+    dag_bag = DagBag()
+    dag = dag_bag.get_dag(dag_id)
+
+    if dag is None:
+        raise ValueError(f"DAG '{dag_id}' not found in DagBag")
+
+    #dag.test(run_conf=conf)
+    # TODO print warning if api server is not running
     from airflow.api.common import trigger_dag
     trigger_dag.trigger_dag(
         dag_id=dag_id,
-        triggered_by=DagRunTriggeredByType .CLI,
+        triggered_by=DagRunTriggeredByType.CLI,
         run_id=None,
         conf=conf,
         logical_date=None,
@@ -137,5 +149,6 @@ def run_get_node(
             assert not runner.broker_submit
     else:
         runner = AirflowRunner(broker_submit=False)
+    #process.node.extras["_airflow_provider_aiida__broker_submit"] = False
 
     return runner.run_get_node(process, inputs, **kwargs)

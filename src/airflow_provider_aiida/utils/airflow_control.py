@@ -1,6 +1,7 @@
 """Utility functions for interacting with Airflow."""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Type
 
 from airflow_provider_aiida.aiida_core.engine.processes.process import AirflowAttributeKey
@@ -23,10 +24,9 @@ def get_current_event_loop() -> 'AbstractEventLoop':
 from plumpy.base.utils import super_check
 
 
-def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | None):
+def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | None, broker_submit: bool = False):
     """reenters same state"""
     import os
-    import logging
 
     # TODO find a solution that gives understandable error message
     # NOTE: this conflicts if profiles from different aiida paths are used
@@ -35,41 +35,37 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     from airflow_provider_aiida.aiida_core import load_profile
     load_profile(aiida_profile)
 
-    # Configure logging to handle AiiDA's custom REPORT level
-    # AiiDA uses REPORT (level 23) for process reporting, but Airflow doesn't recognize it
-    # We need to add this level to Python's logging system or filter it out
-    REPORT_LEVEL = 23
-    if not hasattr(logging, 'REPORT'):
-        logging.addLevelName(REPORT_LEVEL, 'REPORT')
-        # Add a custom REPORT method to the Logger class
-        def report(self, message, *args, **kwargs):
-            if self.isEnabledFor(REPORT_LEVEL):
-                self._log(REPORT_LEVEL, message, args, **kwargs)
-        logging.Logger.report = report
 
     from plumpy.persistence import LoadSaveContext
     loop = get_current_event_loop()
     runner = AirflowRunner(loop=loop)
     saved_state = runner.persister.load_checkpoint(process_pk)
     proc = saved_state.unbundle(LoadSaveContext())
+    # TODO make enum out of the key
+    #runner._broker_submit = proc.node.extras["_airflow_provider_aiida__broker_submit"] 
     proc._runner = runner
     # NOTE: Overwrite persisted loop since loop might have changed
     proc._loop = loop
 
     def on_waiting() -> None:
         proc.__class__.__bases__[0].on_waiting(proc)
-        if proc._awaitables:
-            proc._action_awaitables()
-        else:
-            proc.call_soon(proc.resume)
+        pass
+
     on_waiting.__self__ = proc
     proc.on_waiting = on_waiting
 
     def on_wait(awaitables):
-        proc.__class__.__bases__[0].on_waiting(proc)
+        proc.__class__.__bases__[0].on_wait(proc, awaitables)
         pass
     on_wait.__self__ = proc
     proc.on_wait = on_wait
+
+    # TODO bug seem to not appear anyomre?
+    #def report(msg: str, *args, **kwargs) -> None:
+    #    import inspect
+    #    message = f'[{proc.node.pk}|{proc.__class__.__name__}|{inspect.stack()[1][3]}]: {msg}'
+    #    proc.logger.log(20, message, *args, **kwargs)
+    #proc.report = report
 
     return proc
 
