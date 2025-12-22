@@ -43,7 +43,7 @@ class AirflowRunner(Runner):
         self,
         poll_interval: Union[int, float] = 0,
         loop: Optional[asyncio.AbstractEventLoop] = None,
-        broker_submit = False,
+        broker_submit = True,
     ):
         """Construct a new runner.
 
@@ -63,7 +63,7 @@ class AirflowRunner(Runner):
         self._plugin_version_provider = PluginVersionProvider()
         #from airflow.configuration import conf
         #self._broker_submit = conf.get("database", "sql_alchemy_conn", None) == "airflow-db-not-allowed:///"
-        self._broker_submit = True 
+        self._broker_submit = broker_submit
 
     def _run(
         self, process: TYPE_RUN_PROCESS, inputs: dict[str, Any] | None = None, **kwargs: Any
@@ -79,10 +79,13 @@ class AirflowRunner(Runner):
         inputs = utils.prepare_inputs(inputs, **kwargs)
 
         if utils.is_process_function(process):
+            # TODO this needs to be considered
             result, node = process.run_get_node(**inputs)  # type: ignore[union-attr]
             return result, node
 
         process_inited = self.instantiate_process(process, **inputs)
+        process_inited._context['_airflow_provider_aiida__broker_submit'] = False
+        process_inited.runner.persister.save_checkpoint(process_inited)
 
         from airflow.models import DagBag
         dag_id = process.__name__
@@ -106,9 +109,7 @@ class AirflowRunner(Runner):
                 "aiida_path": aiida_path
                 }
 
-        dag.test(
-            run_conf=conf
-        )
+        dag.test(run_conf=conf)
         return process_inited.outputs, process_inited.node
 
 
@@ -160,6 +161,10 @@ class AirflowRunner(Runner):
 
         inputs = utils.prepare_inputs(inputs, **kwargs)
         process_inited = self.instantiate_process(process, **inputs)
+
+        # TODO this property will be added to process 
+        if hasattr(process_inited, "_context"):
+            process_inited._context['_airflow_provider_aiida__broker_submit'] = self._broker_submit
 
         if not process_inited.metadata.store_provenance:
             raise exceptions.InvalidOperation('cannot submit a process with `store_provenance=False`')
@@ -213,15 +218,48 @@ class AirflowRunner(Runner):
                 # TODO need to do something else
                 #self.loop.create_task(process_inited.step_until_terminated())
 
-                # Load the DAG from DagBag and test it
-                from airflow.models.dagbag import DagBag
+                # Run dag.test() in a subprocess to avoid blocking
+                import subprocess
+                import sys
+                import json
 
-                dag_bag = DagBag()
-                dag = dag_bag.get_dag(process_inited_dag_id)
+                # Serialize conf to JSON for passing to subprocess
+                conf_json = json.dumps(conf)
 
-                if dag is None:
-                    raise ValueError(f"DAG '{process_inited_dag_id}' not found in DagBag")
-                dag.test(run_conf=conf)
+                # Python code to execute in subprocess
+                test_code = f"""
+import sys
+import json
+from airflow.models.dagbag import DagBag
+
+dag_id = {process_inited_dag_id!r}
+conf = json.loads({conf_json!r})
+
+dag_bag = DagBag()
+dag = dag_bag.get_dag(dag_id)
+
+if dag is None:
+    print(f"ERROR: DAG '{{dag_id}}' not found in DagBag", file=sys.stderr)
+    sys.exit(1)
+
+print(f"Running dag.test() for DAG: {{dag_id}}")
+dag.test(run_conf=conf)
+print(f"dag.test() completed for DAG: {{dag_id}}")
+"""
+
+                # Start the subprocess
+                proc = subprocess.Popen(
+                    [sys.executable, "-c", test_code],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                #output = proc.communicate()
+
+                _LOGGER.info(f"Started dag.test() for {process_inited_dag_id} in subprocess (PID: {proc.pid})")
+
+                # Non-blocking: subprocess runs independently
+                # Output will be captured but not waited for
 
                 #from airflow.api.common.trigger_dag import trigger_dag
                 #from airflow.utils.types import DagRunTriggeredByType
@@ -229,7 +267,8 @@ class AirflowRunner(Runner):
                 #result = trigger_dag(**trigger_dag_kwargs)
                 #_LOGGER.info(f"DAG {process_inited_dag_id} triggered successfully: {result}")
         except Exception as e:
-            _LOGGER.error(f"Failed to trigger DAG {process_inited_dag_id}: {e}")
+            import traceback
+            _LOGGER.error(f"Failed to trigger DAG {process_inited_dag_id}: {e}. Full traceback: {traceback.format_exc()}")
             raise
         return process_inited.node
 

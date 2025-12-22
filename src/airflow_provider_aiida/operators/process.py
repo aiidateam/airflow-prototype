@@ -12,6 +12,8 @@ from airflow_provider_aiida.triggers.process import ProcStepUntilTerminatedTrigg
 from airflow_provider_aiida.utils.airflow_control import set_dag_run_id, load_process
 
 from airflow.utils.context import Context
+from airflow.utils.session import provide_session
+from airflow.models import DagRun
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +31,35 @@ class ProcStepUntilTerminatedOperator(BaseOperator):
         self.aiida_profile = aiida_profile
         self.aiida_path = aiida_path
 
+    @staticmethod
+    @provide_session
+    def get_full_dag_run(dag_run_id: str, session=None) -> DagRun:
+        if session is None:
+            raise ValueError("Err")
+        return session.query(DagRun).filter(DagRun.run_id == dag_run_id).one_or_none()
+
     def execute(self, context: Context):
         # Add dag_run_id to the process extras and attributes
         from airflow_provider_aiida.aiida_core import load_profile
         load_profile(self.aiida_profile)
         from aiida.orm import load_node
 
-        node = load_node(self.process_pk)
-
         # Try to get dag_run_id from context and set it on the node
-        set_dag_run_id(node, context['run_id'])
-        broker_submit = context["dag_run"].triggering_user_name == "dag_test"
+        #from airflow.utils.types import DagRunTriggeredByType
+        #from airflow.configuration import conf
+        #if conf.get("database") == "airflow-db-not-allowed:///"
+        #from airflow.sdk.execution_time.supervisor import BlockedDBSession
+        #if isinstance 
+ 
+        #broker_submit = self.get_full_dag_run(context['run_id']).triggered_by != DagRunTriggeredByType.TEST
+        #try:
+        #    broker_submit = self.get_full_dag_run(context['run_id']).triggered_by != DagRunTriggeredByType.TEST
+        #except RuntimeError as e:
+        #    if "Direct database access via the ORM is not allowed" in str(e):
+        #        return False
 
-        proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path, broker_submit)
+        proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path)
+        proc.report("Scheduler")
         coro = self._continue_run_aiida_process(proc)
         # TODO really not nice how runner is retrieved
         proc._runner.loop.run_until_complete(coro)

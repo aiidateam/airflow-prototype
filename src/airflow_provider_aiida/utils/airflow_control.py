@@ -23,8 +23,65 @@ def get_current_event_loop() -> 'AbstractEventLoop':
 
 from plumpy.base.utils import super_check
 
+class DBLogHandler(logging.Handler):
+    """A custom db log handler for writing logs tot he database"""
 
-def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | None, broker_submit: bool = False):
+    def emit(self, record):
+        if record.exc_info:
+            # We do this because if there is exc_info this will put an appropriate string in exc_text.
+            # See:
+            # https://github.com/python/cpython/blob/1c2cb516e49ceb56f76e90645e67e8df4e5df01a/Lib/logging/handlers.py#L590
+            self.format(record)
+
+        from aiida import orm
+
+        backend = record.__dict__.pop('backend')
+        orm.Log.get_collection(backend).create_entry_from_record(record)
+
+def ensure_aiida_db_log_handler(aiida_logger: 'LoggerAdapter'):
+    """Ensure AiiDA's DBLogHandler is configured on the 'aiida' logger."""
+    from aiida.manage.configuration import get_config_option
+    #from aiida.orm.utils.log import DBLogHandler
+
+    #aiida_logger = logging.getLogger('aiida')
+
+    # Check if DBLogHandler is already present
+    for handler in aiida_logger.handlers:
+        if isinstance(handler, DBLogHandler):
+            return  # Already configured
+
+    # DBLogHandler not found, add it
+    try:
+        db_log_level = get_config_option('logging.db_loglevel')
+        db_handler = DBLogHandler()
+        db_handler.setLevel(db_log_level)
+        aiida_logger.addHandler(db_handler)
+        logging.debug(f"Re-added DBLogHandler to 'aiida' logger at level {db_log_level}")
+    except Exception as e:
+        logging.warning(f"Could not add DBLogHandler: {e}")
+
+class LogRecordInspector(logging.Filter):
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        from aiida import load_profile
+        load_profile()
+        from aiida.manage import get_manager
+        from aiida import orm
+        record.__dict__.pop('backend', None)
+        backend = get_manager().get_profile_storage()
+        orm.Log.get_collection(backend).create_entry_from_record(record)
+        # Immediately access the raw LogRecord
+        print(f"Level: {record.levelno}")
+        print(f"Message: {record.getMessage()}")
+        print(f"Has dbnode_id: {hasattr(record, 'dbnode_id')}")
+
+        # Access all attributes
+        for key, value in record.__dict__.items():
+            print(f"  {key}: {value}")
+
+        return True  # Allow through
+
+def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | None):
     """reenters same state"""
     import os
 
@@ -35,15 +92,17 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     from airflow_provider_aiida.aiida_core import load_profile
     load_profile(aiida_profile)
 
-
     from plumpy.persistence import LoadSaveContext
     loop = get_current_event_loop()
-    runner = AirflowRunner(loop=loop)
-    saved_state = runner.persister.load_checkpoint(process_pk)
+    from aiida.engine.persistence import AiiDAPersister
+    saved_state = AiiDAPersister().load_checkpoint(process_pk)
     proc = saved_state.unbundle(LoadSaveContext())
-    # TODO make enum out of the key
-    #runner._broker_submit = proc.node.extras["_airflow_provider_aiida__broker_submit"] 
-    proc._runner = runner
+    # TODO this property will be added to process 
+    if hasattr(proc, "_context"):
+        broker_submit = proc._context['_airflow_provider_aiida__broker_submit']
+    else:
+        broker_submit = False
+    proc._runner = AirflowRunner(loop=loop, broker_submit=broker_submit)
     # NOTE: Overwrite persisted loop since loop might have changed
     proc._loop = loop
 
@@ -61,11 +120,20 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     proc.on_wait = on_wait
 
     # TODO bug seem to not appear anyomre?
-    #def report(msg: str, *args, **kwargs) -> None:
-    #    import inspect
-    #    message = f'[{proc.node.pk}|{proc.__class__.__name__}|{inspect.stack()[1][3]}]: {msg}'
-    #    proc.logger.log(20, message, *args, **kwargs)
-    #proc.report = report
+    def report(msg: str, *args, **kwargs) -> None:
+        import inspect
+        message = f'[{proc.node.pk}|{proc.__class__.__name__}|{inspect.stack()[1][3]}]: {msg}'
+        # TODO seems not to work?
+        proc.logger.log(20, message, *args, **kwargs)
+        # TODO seems to work?
+        #proc.logger.report(message, *args, **kwargs)
+
+    proc.report = report
+    # TODO does not work
+    ensure_aiida_db_log_handler(proc.logger.logger)
+    proc.logger.logger.addFilter(LogRecordInspector())
+
+    #proc.report(f"proc._runner._broker_submit={proc._runner._broker_submit}")
 
     return proc
 

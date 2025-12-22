@@ -68,6 +68,8 @@ def submit(
     if not process_inited.metadata.store_provenance:
         raise InvalidOperation('cannot submit a process with `store_provenance=False`')
 
+    # TODO move to process class
+    process_inited._context['_airflow_provider_aiida__broker_submit'] = True
     runner.persister.save_checkpoint(process_inited)
     process_inited.close()
     node = process_inited.node
@@ -99,7 +101,6 @@ def submit(
     if dag is None:
         raise ValueError(f"DAG '{dag_id}' not found in DagBag")
 
-    #dag.test(run_conf=conf)
     # TODO print warning if api server is not running
     from airflow.api.common import trigger_dag
     trigger_dag.trigger_dag(
@@ -149,6 +150,4 @@ def run_get_node(
             assert not runner.broker_submit
     else:
         runner = AirflowRunner(broker_submit=False)
-    #process.node.extras["_airflow_provider_aiida__broker_submit"] = False
-
     return runner.run_get_node(process, inputs, **kwargs)
