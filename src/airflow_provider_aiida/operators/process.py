@@ -70,10 +70,15 @@ class ProcStepUntilTerminatedOperator(BaseOperator):
             if "traceback" in event:
                 error_msg += f"\n\nFull traceback:\n{event['traceback']}"
             raise ValueError(error_msg)
-        proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path)
-        coro = self._continue_run_aiida_process(proc)
-        # TODO really not nice how runner is retrieved
-        proc._runner.loop.run_until_complete(coro)
+        from aiida import load_profile
+        from aiida.orm import load_node 
+        load_profile()
+        node = load_node(self.process_pk)
+        if not node.is_terminated: 
+            proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path)
+            coro = self._continue_run_aiida_process(proc)
+            # TODO really not nice how runner is retrieved
+            proc._runner.loop.run_until_complete(coro)
 
     async def _continue_run_aiida_process(self, proc):
         while not proc.has_terminated():

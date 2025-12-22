@@ -69,7 +69,8 @@ def submit(
         raise InvalidOperation('cannot submit a process with `store_provenance=False`')
 
     # TODO move to process class
-    process_inited._context['_airflow_provider_aiida__broker_submit'] = True
+    if hasattr(process_inited, "_context"):
+        process_inited._context['_airflow_provider_aiida__broker_submit'] = True
     runner.persister.save_checkpoint(process_inited)
     process_inited.close()
     node = process_inited.node

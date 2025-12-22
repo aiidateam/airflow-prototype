@@ -84,7 +84,8 @@ class AirflowRunner(Runner):
             return result, node
 
         process_inited = self.instantiate_process(process, **inputs)
-        process_inited._context['_airflow_provider_aiida__broker_submit'] = False
+        if hasattr(process_inited, "_context"):
+            process_inited._context['_airflow_provider_aiida__broker_submit'] = False
         process_inited.runner.persister.save_checkpoint(process_inited)
 
         from airflow.models import DagBag

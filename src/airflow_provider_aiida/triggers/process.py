@@ -59,7 +59,8 @@ class ProcStepUntilTerminatedTrigger(BaseTrigger):
                     if proc._awaitables:
                         from aiida.orm import load_node
                         while any([not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]):
-                            proc.report(f'Update asleep {[not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]}')
+                            #proc.report(f'Update asleep {[not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]}')
+                            logger.info(f'Update asleep {[not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]}')
                             #proc.logger.report(f'Update asleep {[not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]}')
                             await asyncio.sleep(1)
 

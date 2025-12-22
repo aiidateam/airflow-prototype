@@ -34,18 +34,89 @@ class DBLogHandler(logging.Handler):
             self.format(record)
 
         from aiida import orm
+        from aiida.manage import get_manager
 
-        backend = record.__dict__.pop('backend')
+        backend = record.__dict__.pop('backend', None)
+        backend = get_manager().get_profile_storage()
         orm.Log.get_collection(backend).create_entry_from_record(record)
 
-def ensure_aiida_db_log_handler(aiida_logger: 'LoggerAdapter'):
-    """Ensure AiiDA's DBLogHandler is configured on the 'aiida' logger."""
+def remove_from_aiida_logger_streaming_handler():
+    """
+    Removes stderr StreamHandlers and replaces with stdout StreamHandler.
+
+    This prevents Airflow from capturing logs as ERROR level (stderr),
+    while still allowing terminal output via stdout.
+    """
+    import sys
+    from aiida.common.log import AIIDA_LOGGER
+    logger = AIIDA_LOGGER
+
+    # Remove all stderr StreamHandlers
+    handlers_to_remove = []
+    has_stdout_handler = False
+
+    for handler in logger.handlers:
+        if isinstance(handler, logging.StreamHandler):
+            if handler.stream == sys.stderr:
+                # Remove stderr handlers
+                handlers_to_remove.append(handler)
+            elif handler.stream == sys.stdout:
+                # Already has stdout handler
+                has_stdout_handler = True
+
+    for handler in handlers_to_remove:
+        logger.removeHandler(handler)
+        logging.debug(f"Removed stderr StreamHandler from '{logger.name}' logger")
+
+    # Add stdout StreamHandler if we don't have one
+    if not has_stdout_handler:
+        stdout_handler = logging.StreamHandler(sys.stdout)
+        stdout_handler.setLevel(logging.DEBUG)
+
+        # Use the same formatter as the removed handler if possible
+        if handlers_to_remove and handlers_to_remove[0].formatter:
+            stdout_handler.setFormatter(handlers_to_remove[0].formatter)
+        else:
+            # Default formatter
+            formatter = logging.Formatter(
+                '%(asctime)s <%(process)d> %(name)s: [%(levelname)s] %(message)s',
+                datefmt='%m/%d/%Y %I:%M:%S %p'
+            )
+            stdout_handler.setFormatter(formatter)
+
+        logger.addHandler(stdout_handler)
+        logging.debug(f"Added stdout StreamHandler to '{logger.name}' logger")
+
+def ensure_aiida_db_log_handler(aiida_logger: logging.Logger):
+    """Ensure AiiDA's DBLogHandler is configured and remove stderr handlers.
+
+    This function:
+    1. Removes StreamHandlers from ALL parent loggers (prevents ERROR-level stderr capture)
+    2. Adds DBLogHandler if missing
+    3. Ensures logs go through Airflow's structured logging system
+    """
+    import sys
     from aiida.manage.configuration import get_config_option
-    #from aiida.orm.utils.log import DBLogHandler
 
-    #aiida_logger = logging.getLogger('aiida')
+    # Walk up the logger hierarchy and remove StreamHandlers from all parent loggers
+    # This is necessary because handlers on parent loggers propagate to child loggers
+    current_logger = aiida_logger
+    while current_logger:
+        handlers_to_remove = []
+        for handler in current_logger.handlers:
+            if isinstance(handler, logging.StreamHandler):
+                # Remove handlers that write to stdout/stderr
+                if handler.stream in (sys.stdout, sys.stderr):
+                    handlers_to_remove.append(handler)
 
-    # Check if DBLogHandler is already present
+        for handler in handlers_to_remove:
+            current_logger.removeHandler(handler)
+            logging.debug(f"Removed StreamHandler from '{current_logger.name}' logger to prevent stderr logging")
+
+        # Move to parent logger
+        current_logger = current_logger.parent
+
+    # Check if DBLogHandler is already present on the provided logger
     for handler in aiida_logger.handlers:
         if isinstance(handler, DBLogHandler):
             return  # Already configured
@@ -56,7 +127,7 @@ def ensure_aiida_db_log_handler(aiida_logger: 'LoggerAdapter'):
         db_handler = DBLogHandler()
         db_handler.setLevel(db_log_level)
         aiida_logger.addHandler(db_handler)
-        logging.debug(f"Re-added DBLogHandler to 'aiida' logger at level {db_log_level}")
+        logging.debug(f"Re-added DBLogHandler to '{aiida_logger.name}' logger at level {db_log_level}")
     except Exception as e:
         logging.warning(f"Could not add DBLogHandler: {e}")
 
@@ -71,13 +142,16 @@ class LogRecordInspector(logging.Filter):
         backend = get_manager().get_profile_storage()
         orm.Log.get_collection(backend).create_entry_from_record(record)
         # Immediately access the raw LogRecord
-        print(f"Level: {record.levelno}")
-        print(f"Message: {record.getMessage()}")
-        print(f"Has dbnode_id: {hasattr(record, 'dbnode_id')}")
+        #print(f"Level: {record.levelno}")
+        #print(f"Message: {record.getMessage()}")
+        #print(f"Has dbnode_id: {hasattr(record, 'dbnode_id')}")
 
         # Access all attributes
-        for key, value in record.__dict__.items():
-            print(f"  {key}: {value}")
+        #for key, value in record.__dict__.items():
+        #    print(f"  {key}: {value}")
+        if record.levelno == 23:
+            record.levelno = logging.INFO
+            record.levelname = 'INFO'
 
         return True  # Allow through
 
@@ -124,13 +198,18 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
         import inspect
         message = f'[{proc.node.pk}|{proc.__class__.__name__}|{inspect.stack()[1][3]}]: {msg}'
         # TODO seems not to work?
-        proc.logger.log(20, message, *args, **kwargs)
+        #proc.logger.log(23, message, *args, **kwargs)
+        #proc.logger.info(message, *args, **kwargs)
+        proc.logger.report(message, *args, **kwargs)
+        #proc.logger.warning(message, *args, **kwargs)
+        #proc.logger.info(message, *args, **kwargs)
         # TODO seems to work?
         #proc.logger.report(message, *args, **kwargs)
 
     proc.report = report
     # TODO does not work
-    ensure_aiida_db_log_handler(proc.logger.logger)
+    #ensure_aiida_db_log_handler(proc.logger.logger)
+    remove_from_aiida_logger_streaming_handler()
     proc.logger.logger.addFilter(LogRecordInspector())
 
     #proc.report(f"proc._runner._broker_submit={proc._runner._broker_submit}")
