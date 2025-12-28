@@ -183,3 +183,86 @@ def process_play(pk, dry_run, only_failed):
         import traceback
         traceback.print_exc()
         raise click.Abort()
+
+
+@airdi_process.command('workerlog')
+@click.argument('pk', type=int)
+@click.option(
+    '--separate',
+    is_flag=True,
+    help='Show logs separately instead of merged by timestamp'
+)
+@click.option(
+    '--list-only',
+    is_flag=True,
+    help='Only list log files without displaying content'
+)
+def process_workerlog(pk, separate, list_only):
+    """
+    View Airflow worker and triggerer logs for an AiiDA process.
+
+    This displays the Airflow execution logs (from scheduler and triggerer)
+    for a given AiiDA process node. By default, logs are merged and sorted
+    chronologically.
+
+    Arguments:
+        PK: The primary key (PK) of the AiiDA process node
+
+    Examples:
+        airdi process workerlog 123
+        airdi process workerlog 456 --separate
+        airdi process workerlog 789 --list-only
+    """
+    from airflow_provider_aiida.aiida_core import load_profile
+    load_profile()
+
+    from airflow_provider_aiida.utils.process_logs import (
+        get_airflow_log_path_from_process,
+        list_log_files,
+        display_logs_with_pager,
+        get_log_source
+    )
+
+    try:
+        # Get the log path
+        log_path = get_airflow_log_path_from_process(pk)
+
+        if list_only:
+            click.echo(f"Log directory for process {pk}:")
+            click.echo(f"  {log_path}")
+
+        # List all log files in the directory
+        log_files = list_log_files(log_path)
+
+        if log_files:
+            if list_only:
+                click.echo(f"\nFound {len(log_files)} log file(s):")
+                for log_file in log_files:
+                    source = get_log_source(log_file)
+                    click.echo(f"  [{source}] {log_file}")
+                click.echo("\nTip: Remove '--list-only' flag to view log contents in a pager")
+                if len(log_files) > 1:
+                    click.echo("     Logs will be merged and sorted by timestamp by default")
+                    click.echo("     Use '--separate' to view logs separately")
+            else:
+                # Display logs in pager
+                display_logs_with_pager(log_files, pk, merged=not separate)
+        else:
+            if log_path.exists():
+                click.secho(f"✗ No log files found in the directory.", fg='yellow')
+                if list_only:
+                    click.echo(f"  Directory: {log_path}")
+            else:
+                click.secho(
+                    f"✗ Log directory does not exist yet.",
+                    fg='yellow'
+                )
+                if list_only:
+                    click.echo(f"  Expected directory: {log_path}")
+                click.echo("  Logs may not have been generated or the DAG run hasn't started.")
+
+    except Exception as e:
+        click.secho(f"✗ Error: {e}", fg='red', err=True)
+        import traceback
+        traceback.print_exc()
+        raise click.Abort()
