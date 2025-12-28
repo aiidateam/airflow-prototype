@@ -46,7 +46,6 @@ class ProcStepUntilTerminatedTrigger(BaseTrigger):
         state = None
         try:
             proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path)
-            proc.report("Trigger")
             state = proc._state.LABEL 
             while not proc.has_terminated():
                 if (state := proc._state.LABEL) != ProcessState.WAITING:
@@ -58,12 +57,14 @@ class ProcStepUntilTerminatedTrigger(BaseTrigger):
                     # TODO not really nice to add workchain
                     if proc._awaitables:
                         from aiida.orm import load_node
+                        proc.report("Starting to wait")
                         while any([not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]):
-                            #proc.report(f'Update asleep {[not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]}')
-                            logger.info(f'Update asleep {[not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]}')
+                            proc.report(f'Update asleep {[awaitable.pk for awaitable in proc._awaitables]}: {[not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]}')
+                            #logger.info(f'Update asleep {[not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]}')
                             #proc.logger.report(f'Update asleep {[not load_node(awaitable.pk).is_terminated for awaitable in proc._awaitables]}')
                             await asyncio.sleep(1)
 
+                        proc.report("Waiting finished")
                         for awaitable in proc._awaitables:
                             proc.report('received callback that awaitable %d has terminated', awaitable.pk)
                             #proc.logger.report('received callback that awaitable %d has terminated', awaitable.pk)

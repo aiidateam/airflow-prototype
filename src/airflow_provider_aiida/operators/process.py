@@ -59,8 +59,9 @@ class ProcStepUntilTerminatedOperator(BaseOperator):
         #        return False
 
         proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path)
-        proc.report("Scheduler")
         coro = self._continue_run_aiida_process(proc)
+        set_dag_run_id(proc.node, context["run_id"])
+
         # TODO really not nice how runner is retrieved
         proc._runner.loop.run_until_complete(coro)
 

@@ -171,6 +171,7 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     from aiida.engine.persistence import AiiDAPersister
     saved_state = AiiDAPersister().load_checkpoint(process_pk)
     proc = saved_state.unbundle(LoadSaveContext())
+
     # TODO this property will be added to process 
     if hasattr(proc, "_context"):
         broker_submit = proc._context['_airflow_provider_aiida__broker_submit']
@@ -211,8 +212,6 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     #ensure_aiida_db_log_handler(proc.logger.logger)
     remove_from_aiida_logger_streaming_handler()
     proc.logger.logger.addFilter(LogRecordInspector())
-
-    #proc.report(f"proc._runner._broker_submit={proc._runner._broker_submit}")
 
     return proc
 
