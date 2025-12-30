@@ -181,6 +181,22 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     # NOTE: Overwrite persisted loop since loop might have changed
     proc._loop = loop
 
+    # Clear _waiting_future if it exists (it's attached to the old loop)
+    if hasattr(proc, '_state') and hasattr(proc._state, '_waiting_future'):
+        waiting_future = proc._state._waiting_future
+        if waiting_future is not None:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"Clearing _waiting_future from process {process_pk}: "
+                f"type={type(waiting_future)}, "
+                f"done={waiting_future.done() if hasattr(waiting_future, 'done') else 'N/A'}, "
+                f"cancelled={waiting_future.cancelled() if hasattr(waiting_future, 'cancelled') else 'N/A'}, "
+                f"repr={repr(waiting_future)}"
+            )
+            proc._state._waiting_future = None
+            logger.info(f"Set _waiting_future to None for process {process_pk}")
+
     # Only monkeypatch if the process is a WorkChain
     from aiida.engine import WorkChain
     if isinstance(proc, WorkChain):
