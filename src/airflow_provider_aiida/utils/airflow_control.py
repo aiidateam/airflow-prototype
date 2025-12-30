@@ -194,8 +194,9 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
                 f"cancelled={waiting_future.cancelled() if hasattr(waiting_future, 'cancelled') else 'N/A'}, "
                 f"repr={repr(waiting_future)}"
             )
-            proc._state._waiting_future = None
-            logger.info(f"Set _waiting_future to None for process {process_pk}")
+            # Create a fresh future on the new loop (unresolved - will be resumed later)
+            proc._state._waiting_future = loop.create_future()
+            logger.info(f"Replaced _waiting_future with fresh future on new loop for process {process_pk}")
 
     # Only monkeypatch if the process is a WorkChain
     from aiida.engine import WorkChain

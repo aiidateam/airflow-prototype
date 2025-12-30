@@ -44,6 +44,9 @@ provider_info = "airflow_provider_aiida.__init__:get_provider_info"
 [project.entry-points."aiida.dags"]
 aiida-standard = "airflow_provider_aiida.example_dags"
 
+[project.entry-points."aiida.workflows"]
+"airflow_provider_aiida.restart" = "airflow_provider_aiida.workflows.restart:ArithmeticRestartWorkChain"
+
 [project.scripts]
 airdi = "airflow_provider_aiida.cli:airdi"
 airflow-provider-aiida-triggerer-service = "airflow_provider_aiida.aiida_core.engine.daemon.triggerer_service:main"
