@@ -11,7 +11,6 @@ inputs = {
     'y': Int(1),
     'z': Int(2),
 }
-
 dag_run = submit(MultiplyAddWorkChain, inputs)
 
 print(f"Triggered DAG run: {dag_run}")

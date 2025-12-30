@@ -9,7 +9,7 @@ inputs = {
     'code': code,
     'x': Int(0),
     'y': Int(1),
-    'metadata': {'options': {'sleep': 500}} 
+    'metadata': {'options': {'sleep': 0}} 
 }
 
 dag_run = submit(ArithmeticAddCalculation, inputs)

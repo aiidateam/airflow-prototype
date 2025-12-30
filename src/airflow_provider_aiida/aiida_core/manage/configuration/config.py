@@ -526,7 +526,7 @@ def from_profile_create_airflow_config(profile: Profile):
     # TODO makes problems when logging into ui
     # TODO when I remove jwt secret however it does not work for direct orm database access
     #      I am confused
-    #airflow_config.set('api_auth', 'jwt_secret', jwt_secret)
+    airflow_config.set('api_auth', 'jwt_secret', jwt_secret)
     #airflow_config.set('api_auth', 'jwt_secret', "")
     #airflow_config.set('execution_api', 'jwt_audience', f"airflow.provider.aiida:execution:{profile.name}")
     airflow_config.set('api_auth', 'jwt_audience', f"airflow.provider.aiida:core:{profile.name}")

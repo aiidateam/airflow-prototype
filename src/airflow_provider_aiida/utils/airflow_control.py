@@ -181,18 +181,22 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     # NOTE: Overwrite persisted loop since loop might have changed
     proc._loop = loop
 
-    def on_waiting() -> None:
-        proc.__class__.__bases__[0].on_waiting(proc)
-        pass
+    # Only monkeypatch if the process is a WorkChain
+    from aiida.engine import WorkChain
+    if isinstance(proc, WorkChain):
+        def on_waiting() -> None:
+            WorkChain.on_waiting(proc)
+            pass
 
-    on_waiting.__self__ = proc
-    proc.on_waiting = on_waiting
+        on_waiting.__self__ = proc
+        proc.on_waiting = on_waiting
 
-    def on_wait(awaitables):
-        proc.__class__.__bases__[0].on_wait(proc, awaitables)
-        pass
-    on_wait.__self__ = proc
-    proc.on_wait = on_wait
+        def on_wait(awaitables):
+            WorkChain.on_wait(proc, awaitables)
+            pass
+        on_wait.__self__ = proc
+        proc.on_wait = on_wait
+
 
     # TODO bug seem to not appear anyomre?
     def report(msg: str, *args, **kwargs) -> None:
@@ -212,7 +216,6 @@ def load_process(process_pk: int, aiida_profile: str | None, aiida_path: str | N
     #ensure_aiida_db_log_handler(proc.logger.logger)
     remove_from_aiida_logger_streaming_handler()
     proc.logger.logger.addFilter(LogRecordInspector())
-
     return proc
 
 

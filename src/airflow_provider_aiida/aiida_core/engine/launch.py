@@ -76,7 +76,6 @@ def submit(
     node = process_inited.node
 
     # Do not wait for the future's result, because in the case of a single worker this would cock-block itself
-    from airflow.utils.types import DagRunTriggeredByType
     dag_id = process_inited.__class__.__name__
 
     from aiida import get_profile
@@ -102,16 +101,21 @@ def submit(
     if dag is None:
         raise ValueError(f"DAG '{dag_id}' not found in DagBag")
 
-    # TODO print warning if api server is not running
-    from airflow.api.common import trigger_dag
-    trigger_dag.trigger_dag(
-        dag_id=dag_id,
-        triggered_by=DagRunTriggeredByType.CLI,
-        run_id=None,
-        conf=conf,
-        logical_date=None,
-        replace_microseconds=True,
-    )
+    # Trigger DAG using REST API client
+    from airflow_provider_aiida.utils.airflow_restapi import get_airflow_rest_api_client_sync
+
+    client = get_airflow_rest_api_client_sync(aiida_profile.name)
+    try:
+        response = client.trigger_dag(
+            dag_id=dag_id,
+            run_id=None,
+            conf=conf,
+            logical_date=None,
+            note=f"Triggered by AiiDA process {node.pk}",
+        )
+        LOGGER.info(f"DAG {dag_id} triggered successfully via REST API: {response.get('dag_run_id', 'unknown')}")
+    finally:
+        client.close()
 
     if not wait:
         return node

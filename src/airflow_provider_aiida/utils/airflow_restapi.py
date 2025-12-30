@@ -935,7 +935,7 @@ class AirflowRestApiClientManager:
             logger.warning(f"Failed to read password file {auth_manager_passwords_file}: {e}. Full traceback:\n{traceback.format_exc()}")
 
 
-        if (not basic_auth_username or not basic_auth_username) and (not jwt_secret and (core_api_jwt_audience or execution_api_jwt_audience)):
+        if (not basic_auth_username or not basic_auth_password) and (not jwt_secret and (core_api_jwt_audience or execution_api_jwt_audience)):
             raise ValueError("Cannot authenticate. Even password file with admin user and admin password must exist (usually created on start of api-server) or JWT secret with audience for core and execution api must be provided.")
 
 
@@ -958,84 +958,6 @@ class AirflowRestApiClientManager:
         }
 
     # TODO duplicate
-    @classmethod
-    def get_async_client(cls, aiida_profile: str | None = None) -> AirflowRestApiClientAsync:
-        """Get or create a cached async AirflowRestApiClient for the given profile.
-
-        This method reads all configuration from airflow.cfg and creates an async client
-        with the appropriate parameters. Clients are cached per profile.
-
-        Args:
-            aiida_profile: AiiDA profile name (optional, uses default if None)
-
-        Returns:
-            AirflowRestApiClientAsync instance for the profile
-        """
-        # Read configuration
-        config = cls._read_client_config(aiida_profile)
-        profile = config['profile']
-
-        # Return cached client if exists
-        if profile.name in cls._async_clients:
-            logger.info(f"Reusing cached AirflowRestApiClientAsync for profile {profile.name}")
-            return cls._async_clients[profile.name]
-
-        logger.info(f"Creating AirflowRestApiClientAsync for profile {profile.name} at {config['host']}:{config['port']}")
-        logger.info(f"Auth config: jwt_secret={'set' if config['jwt_secret'] else 'not set'}, basic_auth={'set' if config['basic_auth_username'] and config['basic_auth_password'] else 'not set'}")
-
-        # Create and cache the async client
-        client = AirflowRestApiClientAsync(
-            host=config['host'],
-            port=config['port'],
-            jwt_secret=config['jwt_secret'],
-            core_api_jwt_audience=config['core_api_jwt_audience'],
-            execution_api_jwt_audience=config['execution_api_jwt_audience'],
-            timezone_str=config['timezone_str'],
-            basic_auth_username=config['basic_auth_username'],
-            basic_auth_password=config['basic_auth_password'],
-        )
-
-        cls._async_clients[profile.name] = client
-        return client
-
-    @classmethod
-    def get_sync_client(cls, aiida_profile: str | None = None) -> AirflowRestApiClientSync:
-
-        # Read Basic Auth settings (for SimpleAuthManager)
-        basic_auth_username = None
-        basic_auth_password = None
-
-        password_file = airflow_home / 'simple_auth_manager_passwords.json.generated'
-        try:
-            with open(password_file, 'r') as f:
-                passwords = json.load(f)
-                basic_auth_password = passwords.get(basic_auth_username)
-                if basic_auth_password:
-                    logger.info(f"Using Basic Auth with username: {basic_auth_username}")
-                else:
-                    logger.warning(f"Password not found for user {basic_auth_username} in {password_file}")
-        except Exception as e:
-            import traceback
-            raise FileNotFoundError(f"Failed to read password file {password_file}: {e}. Full traceback:\n{traceback.format_exc()}")
-
-
-        # Read timezone
-        timezone_str = config.get('core', 'default_timezone', fallback=None)
-        if timezone_str is None:
-            raise ValueError("core.default_timezone is not defined in airflow config")
-
-        return {
-            'profile': profile,
-            'host': host,
-            'port': port,
-            'jwt_secret': jwt_secret,
-            'core_api_jwt_audience': core_api_jwt_audience,
-            'execution_api_jwt_audience': execution_api_jwt_audience,
-            'timezone_str': timezone_str,
-            'basic_auth_username': basic_auth_username,
-            'basic_auth_password': basic_auth_password,
-        }
-
     @classmethod
     def get_async_client(cls, aiida_profile: str | None = None) -> AirflowRestApiClientAsync:
         """Get or create a cached async AirflowRestApiClient for the given profile.
