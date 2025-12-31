@@ -23,8 +23,8 @@ class ArithmeticRestartWorkChain(BaseRestartWorkChain):
                   help='Code for arithmetic.add calculation')
         spec.input('x', valid_type=orm.Int, help='First integer')
         spec.input('y', valid_type=orm.Int, help='Second integer')
-        spec.input('fail_threshold', valid_type=orm.Float, default=lambda: orm.Float(0.0),
-                  help='Probability of random failure for testing (0.0-1.0)')
+        spec.input('num_failures', valid_type=orm.Int, default=lambda: orm.Int(0),
+                  help='Number of times to inject failures before succeeding (for testing)')
         spec.output('result', valid_type=orm.Int, required=False)
 
         # Set the process class
@@ -40,6 +40,8 @@ class ArithmeticRestartWorkChain(BaseRestartWorkChain):
             ),
             cls.results,
         )
+        #spec.expose_inputs(cls._process_class)
+        spec.expose_outputs(cls._process_class)
 
     def setup(self):
         """Call the parent setup and add any additional setup."""
@@ -51,29 +53,30 @@ class ArithmeticRestartWorkChain(BaseRestartWorkChain):
         if 'code' in self.inputs:
             self.ctx.inputs['code'] = self.inputs.code
 
+        # Initialize failure counter for testing
+        self.ctx.num_failures_injected = 0
+
     @process_handler(priority=100)
-    def handle_random_failure(self, node):
-        """Process handler that randomly injects failures for testing.
+    def handle_injected_failure(self, node):
+        """Process handler that injects a specific number of failures for testing.
 
-        This handler is called after each calculation completes. It randomly
-        decides to inject a failure based on the fail_threshold input to test
-        the restart mechanism.
+        This handler is called after each calculation completes. It injects
+        exactly num_failures failures before allowing the calculation to succeed.
         """
-        import random
-
         # Only inject failures if the calculation succeeded
         if not node.is_finished_ok:
             return None
 
-        # Randomly inject failure for testing based on fail_threshold
-        fail_threshold = self.inputs.fail_threshold.value
-        if random.random() < fail_threshold:
-            self.report(f'Randomly injecting failure for testing (threshold={fail_threshold}, iteration={self.ctx.iteration})')
+        # Check if we should inject another failure
+        num_failures = self.inputs.num_failures.value
+        if self.ctx.num_failures_injected < num_failures:
+            self.ctx.num_failures_injected += 1
+            self.report(f'Injecting failure {self.ctx.num_failures_injected}/{num_failures} for testing (iteration={self.ctx.iteration})')
             # Return a report with exit code 0 to signal restart
             from aiida.engine import ExitCode
             return ProcessHandlerReport(exit_code=ExitCode(0))
 
-        # No failure injection - let the calculation succeed
+        # No more failures to inject - let the calculation succeed
         # Store iteration count in extras
         self.node.base.extras.set('iteration', self.ctx.iteration)
         return None

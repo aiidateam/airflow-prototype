@@ -1,6 +1,6 @@
 """Tests for the ArithmeticRestartWorkChain."""
 import pytest
-from aiida.orm import Int, Float
+from aiida.orm import Int
 from airflow_provider_aiida.workflows.restart import ArithmeticRestartWorkChain
 from airflow_provider_aiida.aiida_core.engine.launch import run_get_node, submit
 
@@ -12,7 +12,7 @@ def test_restart_workchain_success_dag_test_run(bash_code):
         'code': bash_code,
         'x': Int(5),
         'y': Int(10),
-        'fail_threshold': Float(0.0),  # Never fail
+        'num_failures': Int(0),  # Never fail
         'max_iterations': Int(5),
     }
 
@@ -24,23 +24,22 @@ def test_restart_workchain_success_dag_test_run(bash_code):
 
 
 def test_restart_workchain_with_retries_dag_test_run(bash_code):
-    """Test the ArithmeticRestartWorkChain DAG with random failures - testing restart mechanism."""
+    """Test the ArithmeticRestartWorkChain DAG with injected failures - testing restart mechanism."""
 
     inputs = {
         'code': bash_code,
         'x': Int(3),
         'y': Int(7),
-        'fail_threshold': Float(0.7),  # 70% chance to fail
-        'max_iterations': Int(20),  # High enough to eventually succeed
+        'num_failures': Int(5),  # Fail 5 times before succeeding
+        'max_iterations': Int(10),  # High enough to eventually succeed
     }
 
     _, node = run_get_node(ArithmeticRestartWorkChain, inputs)
 
-    # Should eventually succeed (with 20 tries, probability of all failing is ~0.7^20 ≈ 0.0008)
+    # Should succeed after 5 failures (6th iteration)
     assert node.is_finished_ok, f"Workchain failed, exit status: {node.exit_status}, exit message: {node.exit_message}"
     assert node.outputs.result.value == 10, f"Expected 10, got {node.outputs.result.value}"
-    # Can't assert exact iteration count due to randomness, but should be > 1
-    # Just check that it completed
+    assert node.base.extras.get('iteration', 0) == 6, "Should have succeeded on 6th iteration (after 5 failures)"
 
 
 def test_restart_workchain_max_iterations_exceeded_dag_test_run(bash_code):
@@ -50,7 +49,7 @@ def test_restart_workchain_max_iterations_exceeded_dag_test_run(bash_code):
         'code': bash_code,
         'x': Int(2),
         'y': Int(8),
-        'fail_threshold': Float(1.0),  # Always fail
+        'num_failures': Int(10),  # Try to fail 10 times (but max_iterations=3 will stop it)
         'max_iterations': Int(3),
     }
 
@@ -68,7 +67,7 @@ def test_restart_workchain_success_trigger_run(bash_code):
         'code': bash_code,
         'x': Int(5),
         'y': Int(10),
-        'fail_threshold': Float(0.0),  # Never fail
+        'num_failures': Int(2),  # Never fail
         'max_iterations': Int(5),
     }
 
@@ -80,19 +79,19 @@ def test_restart_workchain_success_trigger_run(bash_code):
 
 @pytest.mark.integration
 def test_restart_workchain_with_retries_trigger_run(bash_code):
-    """Test the triggered ArithmeticRestartWorkChain with random failures and retries."""
+    """Test the triggered ArithmeticRestartWorkChain with injected failures and retries."""
 
     inputs = {
         'code': bash_code,
         'x': Int(3),
         'y': Int(7),
-        'fail_threshold': Float(0.7),  # 70% chance to fail
-        'max_iterations': Int(20),  # High enough to eventually succeed
+        'num_failures': Int(5),  # Fail 5 times before succeeding
+        'max_iterations': Int(10),  # High enough to eventually succeed
     }
 
     node = submit(ArithmeticRestartWorkChain, inputs, wait=True)
 
-    # Should eventually succeed
+    # Should succeed after 5 failures
     assert node.is_finished_ok, f"Workchain failed, exit status: {node.exit_status}, exit message: {node.exit_message}"
     assert node.outputs.result.value == 10, f"Expected 10, got {node.outputs.result.value}"
 
@@ -105,7 +104,7 @@ def test_restart_workchain_max_iterations_trigger_run(bash_code):
         'code': bash_code,
         'x': Int(2),
         'y': Int(8),
-        'fail_threshold': Float(1.0),  # Always fail
+        'num_failures': Int(10),  # Try to fail 10 times (but max_iterations=3 will stop it)
         'max_iterations': Int(3),
     }
 
