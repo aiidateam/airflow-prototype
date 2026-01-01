@@ -6,6 +6,7 @@ for testing error handling and restart behavior.
 """
 from aiida import orm
 from aiida.engine import BaseRestartWorkChain, while_, process_handler, ProcessHandlerReport
+from aiida.plugins import CalculationFactory
 
 
 class ArithmeticRestartWorkChain(BaseRestartWorkChain):
@@ -15,6 +16,8 @@ class ArithmeticRestartWorkChain(BaseRestartWorkChain):
     This workchain demonstrates the BaseRestartWorkChain error handling mechanism
     by retrying ArithmeticAddCalculation if it fails.
     """
+
+    _process_class = CalculationFactory('core.arithmetic.add') 
 
     @classmethod
     def define(cls, spec):
@@ -28,8 +31,6 @@ class ArithmeticRestartWorkChain(BaseRestartWorkChain):
         spec.output('result', valid_type=orm.Int, required=False)
 
         # Set the process class
-        from aiida.plugins import CalculationFactory
-        cls._process_class = CalculationFactory('core.arithmetic.add')
 
         # Define the outline
         spec.outline(
@@ -67,8 +68,8 @@ class ArithmeticRestartWorkChain(BaseRestartWorkChain):
         if not node.is_finished_ok:
             return None
 
-        # Check if we should inject another failure
         num_failures = self.inputs.num_failures.value
+        # Check if we should inject another failure
         if self.ctx.num_failures_injected < num_failures:
             self.ctx.num_failures_injected += 1
             self.report(f'Injecting failure {self.ctx.num_failures_injected}/{num_failures} for testing (iteration={self.ctx.iteration})')
@@ -80,6 +81,30 @@ class ArithmeticRestartWorkChain(BaseRestartWorkChain):
         # Store iteration count in extras
         self.node.base.extras.set('iteration', self.ctx.iteration)
         return None
+
+    def get_outputs(self, node):
+        """Override to add debug logging."""
+        self.report(f'DEBUG: get_outputs() called for node {node.pk}')
+        self.report(f'DEBUG: self.process_class = {self.process_class}')
+        self.report(f'DEBUG: self._process_class = {self._process_class}')
+
+        # Log what's in the spec
+        self.report(f'DEBUG: spec()._exposed_outputs keys: {list(self.spec()._exposed_outputs.keys())}')
+        for ns, proc_dict in self.spec()._exposed_outputs.items():
+            self.report(f'DEBUG:   Namespace {ns}: process_classes = {list(proc_dict.keys())}')
+            for pc, outputs in proc_dict.items():
+                self.report(f'DEBUG:     {pc}: {outputs}')
+                self.report(f'DEBUG:     Is it self.process_class? {pc is self.process_class}')
+
+        # Log what outputs the node actually has
+        from aiida.common import LinkType
+        node_outputs = node.base.links.get_outgoing(link_type=(LinkType.CREATE, LinkType.RETURN)).nested()
+        self.report(f'DEBUG: Node {node.pk} has outputs: {list(node_outputs.keys())}')
+
+        # Call the parent method
+        result = super().get_outputs(node)
+        self.report(f'DEBUG: exposed_outputs() returned: {list(result.keys())}')
+        return result
 
     def results(self):
         """Attach the outputs of the last successful calculation."""
