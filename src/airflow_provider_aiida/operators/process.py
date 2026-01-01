@@ -75,16 +75,54 @@ class ProcStepUntilTerminatedOperator(BaseOperator):
         from aiida.orm import load_node 
         load_profile()
         node = load_node(self.process_pk)
-        if not node.is_terminated: 
+        if not node.is_terminated:
             proc = load_process(self.process_pk, self.aiida_profile, self.aiida_path)
+
+            # If process is in WAITING state, recreate the waiting future in current loop
+            #from plumpy.process_states import ProcessState
+            #if hasattr(proc, '_state') and hasattr(proc._state, 'LABEL'):
+            #    if proc._state.LABEL == ProcessState.WAITING:
+            #        # Create new future in current event loop to replace old one
+            #        proc._state._waiting_future = proc._runner.loop.create_future()
+
+            # Only resolve awaitables for processes that have actually terminated
+            #for awaitable in proc._awaitables:
+            #    awaitable_node = load_node(awaitable.pk)
+            #    if awaitable_node.is_terminated:
+            #        proc._on_awaitable_finished(awaitable)
+
             coro = self._continue_run_aiida_process(proc)
             # TODO really not nice how runner is retrieved
             proc._runner.loop.run_until_complete(coro)
 
     async def _continue_run_aiida_process(self, proc):
         while not proc.has_terminated():
+            # Log current state before stepping
+            current_state = proc._state.LABEL if hasattr(proc._state, 'LABEL') else str(proc.state)
+
+            # Get next step info for WorkChains
+            next_step_info = "N/A"
+            if hasattr(proc, '_stepper') and proc._stepper is not None:
+                try:
+                    # Try to get the current outline step
+                    if hasattr(proc._stepper, '_fn') and proc._stepper._fn:
+                        next_step_info = proc._stepper._fn.__name__
+                except (AttributeError, TypeError):
+                    pass
+
+            self.log.info(
+                f"Process {self.process_pk} - State: {current_state}, Next step: {next_step_info}, "
+                f"Has awaitables: {len(proc._awaitables) if hasattr(proc, '_awaitables') else 0}"
+            )
+
             await proc.step()
+
+            # Log state after stepping
+            new_state = proc._state.LABEL if hasattr(proc._state, 'LABEL') else str(proc.state)
+            self.log.info(f"Process {self.process_pk} - After step, new state: {new_state}")
+
             if proc._state.LABEL == ProcessState.WAITING:
+                self.log.info(f"Process {self.process_pk} - Entering WAITING state, deferring to triggerer")
                 self.defer(
                     trigger=ProcStepUntilTerminatedTrigger(
                         process_pk=self.process_pk,
