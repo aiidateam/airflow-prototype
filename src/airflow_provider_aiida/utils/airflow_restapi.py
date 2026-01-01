@@ -975,10 +975,17 @@ class AirflowRestApiClientManager:
         config = cls._read_client_config(aiida_profile)
         profile = config['profile']
 
-        # Return cached client if exists
+        # Return cached client if exists and is still open
         if profile.name in cls._async_clients:
-            logger.info(f"Reusing cached AirflowRestApiClientAsync for profile {profile.name}")
-            return cls._async_clients[profile.name]
+            cached_client = cls._async_clients[profile.name]
+            # Check if the underlying httpx client is still open
+            if not cached_client._client.is_closed:
+                logger.info(f"Reusing cached AirflowRestApiClientAsync for profile {profile.name}")
+                return cached_client
+            else:
+                # Client was closed, remove from cache and create new one
+                logger.warning(f"Cached AirflowRestApiClientAsync for profile {profile.name} was closed, creating new one")
+                del cls._async_clients[profile.name]
 
         logger.info(f"Creating AirflowRestApiClientAsync for profile {profile.name} at {config['host']}:{config['port']}")
         logger.info(f"Auth config: jwt_secret={'set' if config['jwt_secret'] else 'not set'}, basic_auth={'set' if config['basic_auth_username'] and config['basic_auth_password'] else 'not set'}")
@@ -1015,10 +1022,17 @@ class AirflowRestApiClientManager:
         config = cls._read_client_config(aiida_profile)
         profile = config['profile']
 
-        # Return cached client if exists
+        # Return cached client if exists and is still open
         if profile.name in cls._sync_clients:
-            logger.info(f"Reusing cached AirflowRestApiClientSync for profile {profile.name}")
-            return cls._sync_clients[profile.name]
+            cached_client = cls._sync_clients[profile.name]
+            # Check if the underlying httpx client is still open
+            if not cached_client._client.is_closed:
+                logger.info(f"Reusing cached AirflowRestApiClientSync for profile {profile.name}")
+                return cached_client
+            else:
+                # Client was closed, remove from cache and create new one
+                logger.warning(f"Cached AirflowRestApiClientSync for profile {profile.name} was closed, creating new one")
+                del cls._sync_clients[profile.name]
 
         logger.info(f"Creating AirflowRestApiClientSync for profile {profile.name} at {config['host']}:{config['port']}")
         logger.info(f"Auth config: jwt_secret={'set' if config['jwt_secret'] else 'not set'}, basic_auth={'set' if config['basic_auth_username'] and config['basic_auth_password'] else 'not set'}")
