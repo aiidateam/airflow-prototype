@@ -14,7 +14,7 @@ from airflow_provider_aiida.taskgroups.process import ProcessTaskGroup
 from {module_path} import {class_name}
 
 from airflow import DAG
-from airflow.models.param import Param
+from airflow.sdk import Param
 
 with DAG(
     '{dag_id}',

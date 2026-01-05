@@ -2,7 +2,7 @@ from airflow_provider_aiida.taskgroups.process import ProcessTaskGroup
 from aiida.calculations.arithmetic.add import ArithmeticAddCalculation
 
 from airflow import DAG
-from airflow.models.param import Param
+from airflow.sdk import Param
 
 with DAG(
     'ArithmeticAddCalculation',

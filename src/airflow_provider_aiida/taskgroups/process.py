@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from airflow.utils.task_group import TaskGroup
+from airflow.sdk import TaskGroup
 
 from airflow_provider_aiida.operators.process import ProcStepUntilTerminatedOperator
 
