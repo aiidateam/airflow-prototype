@@ -113,7 +113,7 @@ def submit(
             logical_date=None,
             note=f"Triggered by AiiDA process {node.pk}",
         )
-        LOGGER.info(f"DAG {dag_id} triggered successfully via REST API: {response.get('dag_run_id', 'unknown')}")
+        LOGGER.debug(f"DAG {dag_id} triggered successfully via REST API: {response.get('dag_run_id', 'unknown')}")
     finally:
         client.close()
 

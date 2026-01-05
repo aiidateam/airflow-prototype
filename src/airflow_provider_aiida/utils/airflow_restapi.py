@@ -102,7 +102,7 @@ class AirflowRestApiClientBase(ABC):
         # Fix for macOS: Disable proxy detection to avoid fork-safety issues
         # See: https://github.com/python/cpython/issues/58037
         if platform.system() == 'Darwin':
-            logger.info("Detected macOS - disabling proxy for REST API to avoid fork-safety issues")
+            logger.debug("Detected macOS - disabling proxy for REST API to avoid fork-safety issues")
             os.environ['no_proxy'] = '*'
 
         # Subclasses will set _client
@@ -124,17 +124,17 @@ class AirflowRestApiClientBase(ABC):
         # Use cached JWT token if available
         if self._cached_jwt_token:
             headers['Authorization'] = f'Bearer {self._cached_jwt_token}'
-            logger.info("Using cached JWT token")
+            logger.debug("Using cached JWT token")
             return headers
         # If no JWT secret but we have Basic Auth credentials, get token from server
         elif not self._jwt_secret and self._basic_auth_username and self._basic_auth_password:
-            logger.info("No JWT secret configured, attempting token exchange with credentials")
+            logger.debug("No JWT secret configured, attempting token exchange with credentials")
             try:
                 token = self._obtain_jwt_token_from_credentials()
                 if token:
                     self._cached_jwt_token = token
                     headers['Authorization'] = f'Bearer {token}'
-                    logger.info("Successfully obtained and cached JWT token via token exchange")
+                    logger.debug("Successfully obtained and cached JWT token via token exchange")
                     return headers
             except Exception as e:
                 logger.error(f"Failed to obtain JWT token: {e}")
@@ -155,7 +155,7 @@ class AirflowRestApiClientBase(ABC):
                     now_dt = datetime.datetime.now(tz)
                 except Exception:
                     # Fallback to UTC if timezone is invalid
-                    logger.warning(f"Invalid timezone {self._timezone_str}, using UTC")
+                    logger.debug(f"Invalid timezone {self._timezone_str}, using UTC")
                     now_dt = datetime.datetime.now(datetime.timezone.utc)
 
             # Convert to UTC timestamp
@@ -173,16 +173,16 @@ class AirflowRestApiClientBase(ABC):
                 'iat': now,  # Issued at
             }
 
-            logger.info(f"JWT token config: audience={audience}, timezone={self._timezone_str}")
-            logger.info(f"JWT token timestamps: nbf={payload_jwt['nbf']}, iat={payload_jwt['iat']}, exp={payload_jwt['exp']}")
+            logger.debug(f"JWT token config: audience={audience}, timezone={self._timezone_str}")
+            logger.debug(f"JWT token timestamps: nbf={payload_jwt['nbf']}, iat={payload_jwt['iat']}, exp={payload_jwt['exp']}")
 
             # Encode with HS512 algorithm (Airflow's default)
             token = jwt.encode(payload_jwt, self._jwt_secret, algorithm='HS512', headers={'alg': 'HS512'})
             self._cached_jwt_token = token
             headers['Authorization'] = f'Bearer {token}'
-            logger.info("Generated JWT token for authentication (HS512)")
+            logger.debug("Generated JWT token for authentication (HS512)")
         else:
-            logger.warning("No JWT secret or credentials configured, trying without authentication")
+            logger.debug("No JWT secret or credentials configured, trying without authentication")
 
         return headers
 
@@ -194,7 +194,7 @@ class AirflowRestApiClientBase(ABC):
         This is useful for testing or when you know the token has been invalidated.
         """
         self._cached_jwt_token = None
-        logger.info("Cleared cached JWT token")
+        logger.debug("Cleared cached JWT token")
 
     @abstractmethod
     def _obtain_jwt_token_from_credentials(self) -> str | None:
@@ -355,13 +355,13 @@ class AirflowRestApiClientAsync(AirflowRestApiClientBase):
         # Create reusable async HTTP client with trust_env=False to avoid macOS proxy issues
         self._client = httpx.AsyncClient(trust_env=False)
 
-        logger.info(f"Initialized AirflowRestApiClientAsync for {self._api_url}")
+        logger.debug(f"Initialized AirflowRestApiClientAsync for {self._api_url}")
 
     async def close(self):
         """Close the HTTP client and cleanup resources."""
         if self._client:
             await self._client.aclose()
-            logger.info("Closed AirflowRestApiClientAsync")
+            logger.debug("Closed AirflowRestApiClientAsync")
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -384,7 +384,7 @@ class AirflowRestApiClientAsync(AirflowRestApiClientBase):
             return None
 
         try:
-            logger.info(f"Obtaining JWT token for user: {self._basic_auth_username}")
+            logger.debug(f"Obtaining JWT token for user: {self._basic_auth_username}")
             response = await self._client.post(
                 self._auth_url,
                 json={
@@ -402,7 +402,7 @@ class AirflowRestApiClientAsync(AirflowRestApiClientBase):
                 logger.error("Token response did not contain 'access_token' or 'token' field")
                 return None
 
-            logger.info("Successfully obtained JWT token")
+            logger.debug("Successfully obtained JWT token")
             return token
 
         except httpx.HTTPStatusError as e:
@@ -441,8 +441,8 @@ class AirflowRestApiClientAsync(AirflowRestApiClientBase):
             dag_id, dag_run_id, task_ids_to_clear, dry_run, only_failed, reset_dag_runs
         )
 
-        logger.info(f"Calling REST API to clear tasks: {url}")
-        logger.info(f"Payload: {payload}")
+        logger.debug(f"Calling REST API to clear tasks: {url}")
+        logger.debug(f"Payload: {payload}")
 
         # Try the request, with one retry on 401
         for attempt in range(2):
@@ -453,25 +453,25 @@ class AirflowRestApiClientAsync(AirflowRestApiClientBase):
                 # Use the reusable client
                 response = await self._client.post(url, json=payload, headers=headers)
 
-                logger.info(f"Response status code: {response.status_code}")
+                logger.debug(f"Response status code: {response.status_code}")
 
                 # Handle 401 on first attempt by clearing token and retrying
                 if response.status_code == 401 and attempt == 0 and self._cached_jwt_token:
-                    logger.warning("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
+                    logger.debug("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
                     self._cached_jwt_token = None
                     continue
 
-                logger.info(f"Response headers: {response.headers}")
-                logger.info(f"Response text: {response.text}")
+                logger.debug(f"Response headers: {response.headers}")
+                logger.debug(f"Response text: {response.text}")
 
                 response.raise_for_status()
                 result = response.json()
-                logger.info(f"Successfully cleared tasks: {result}")
+                logger.debug(f"Successfully cleared tasks: {result}")
                 return result
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401 and attempt == 0 and self._cached_jwt_token:
-                    logger.warning("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
+                    logger.debug("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
                     self._cached_jwt_token = None
                     continue
                 else:
@@ -525,8 +525,8 @@ class AirflowRestApiClientAsync(AirflowRestApiClientBase):
         # Build URL and payload using base class helper
         url, payload = self._build_trigger_dag_payload(dag_id, run_id, conf, logical_date, note)
 
-        logger.info(f"Triggering DAG via REST API: {url}")
-        logger.info(f"Payload: {payload}")
+        logger.debug(f"Triggering DAG via REST API: {url}")
+        logger.debug(f"Payload: {payload}")
 
         # Try the request, with one retry on 401
         for attempt in range(2):
@@ -537,25 +537,25 @@ class AirflowRestApiClientAsync(AirflowRestApiClientBase):
                 # Use the reusable client
                 response = await self._client.post(url, json=payload, headers=headers)
 
-                logger.info(f"Response status code: {response.status_code}")
+                logger.debug(f"Response status code: {response.status_code}")
 
                 # Handle 401 on first attempt by clearing token and retrying
                 if response.status_code == 401 and attempt == 0 and self._cached_jwt_token:
-                    logger.warning("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
+                    logger.debug("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
                     self._cached_jwt_token = None
                     continue
 
-                logger.info(f"Response headers: {response.headers}")
-                logger.info(f"Response text: {response.text}")
+                logger.debug(f"Response headers: {response.headers}")
+                logger.debug(f"Response text: {response.text}")
 
                 response.raise_for_status()
                 result = response.json()
-                logger.info(f"Successfully triggered DAG run: {result.get('dag_run_id', 'unknown')}")
+                logger.debug(f"Successfully triggered DAG run: {result.get('dag_run_id', 'unknown')}")
                 return result
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401 and attempt == 0 and self._cached_jwt_token:
-                    logger.warning("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
+                    logger.debug("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
                     self._cached_jwt_token = None
                     continue
                 else:
@@ -613,13 +613,13 @@ class AirflowRestApiClientSync(AirflowRestApiClientBase):
         # Create reusable sync HTTP client with trust_env=False to avoid macOS proxy issues
         self._client = httpx.Client(trust_env=False)
 
-        logger.info(f"Initialized AirflowRestApiClientSync for {self._api_url}")
+        logger.debug(f"Initialized AirflowRestApiClientSync for {self._api_url}")
 
     def close(self):
         """Close the HTTP client and cleanup resources."""
         if self._client:
             self._client.close()
-            logger.info("Closed AirflowRestApiClientSync")
+            logger.debug("Closed AirflowRestApiClientSync")
 
     def __enter__(self):
         """Sync context manager entry."""
@@ -642,7 +642,7 @@ class AirflowRestApiClientSync(AirflowRestApiClientBase):
             return None
 
         try:
-            logger.info(f"Obtaining JWT token for user: {self._basic_auth_username}")
+            logger.debug(f"Obtaining JWT token for user: {self._basic_auth_username}")
             response = self._client.post(
                 self._auth_url,
                 json={
@@ -660,7 +660,7 @@ class AirflowRestApiClientSync(AirflowRestApiClientBase):
                 logger.error("Token response did not contain 'access_token' or 'token' field")
                 return None
 
-            logger.info("Successfully obtained JWT token")
+            logger.debug("Successfully obtained JWT token")
             return token
 
         except httpx.HTTPStatusError as e:
@@ -699,8 +699,8 @@ class AirflowRestApiClientSync(AirflowRestApiClientBase):
             dag_id, dag_run_id, task_ids_to_clear, dry_run, only_failed, reset_dag_runs
         )
 
-        logger.info(f"Calling REST API to clear tasks: {url}")
-        logger.info(f"Payload: {payload}")
+        logger.debug(f"Calling REST API to clear tasks: {url}")
+        logger.debug(f"Payload: {payload}")
 
         # Try the request, with one retry on 401
         for attempt in range(2):
@@ -711,25 +711,25 @@ class AirflowRestApiClientSync(AirflowRestApiClientBase):
                 # Use the reusable client (sync call)
                 response = self._client.post(url, json=payload, headers=headers)
 
-                logger.info(f"Response status code: {response.status_code}")
+                logger.debug(f"Response status code: {response.status_code}")
 
                 # Handle 401 on first attempt by clearing token and retrying
                 if response.status_code == 401 and attempt == 0 and self._cached_jwt_token:
-                    logger.warning("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
+                    logger.debug("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
                     self._cached_jwt_token = None
                     continue
 
-                logger.info(f"Response headers: {response.headers}")
-                logger.info(f"Response text: {response.text}")
+                logger.debug(f"Response headers: {response.headers}")
+                logger.debug(f"Response text: {response.text}")
 
                 response.raise_for_status()
                 result = response.json()
-                logger.info(f"Successfully cleared tasks: {result}")
+                logger.debug(f"Successfully cleared tasks: {result}")
                 return result
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401 and attempt == 0 and self._cached_jwt_token:
-                    logger.warning("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
+                    logger.debug("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
                     self._cached_jwt_token = None
                     continue
                 else:
@@ -783,8 +783,8 @@ class AirflowRestApiClientSync(AirflowRestApiClientBase):
         # Build URL and payload using base class helper
         url, payload = self._build_trigger_dag_payload(dag_id, run_id, conf, logical_date, note)
 
-        logger.info(f"Triggering DAG via REST API: {url}")
-        logger.info(f"Payload: {payload}")
+        logger.debug(f"Triggering DAG via REST API: {url}")
+        logger.debug(f"Payload: {payload}")
 
         # Try the request, with one retry on 401
         for attempt in range(2):
@@ -795,25 +795,25 @@ class AirflowRestApiClientSync(AirflowRestApiClientBase):
                 # Use the reusable client (sync call)
                 response = self._client.post(url, json=payload, headers=headers)
 
-                logger.info(f"Response status code: {response.status_code}")
+                logger.debug(f"Response status code: {response.status_code}")
 
                 # Handle 401 on first attempt by clearing token and retrying
                 if response.status_code == 401 and attempt == 0 and self._cached_jwt_token:
-                    logger.warning("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
+                    logger.debug("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
                     self._cached_jwt_token = None
                     continue
 
-                logger.info(f"Response headers: {response.headers}")
-                logger.info(f"Response text: {response.text}")
+                logger.debug(f"Response headers: {response.headers}")
+                logger.debug(f"Response text: {response.text}")
 
                 response.raise_for_status()
                 result = response.json()
-                logger.info(f"Successfully triggered DAG run: {result.get('dag_run_id', 'unknown')}")
+                logger.debug(f"Successfully triggered DAG run: {result.get('dag_run_id', 'unknown')}")
                 return result
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401 and attempt == 0 and self._cached_jwt_token:
-                    logger.warning("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
+                    logger.debug("Received 401 Unauthorized, token may be expired. Clearing cache and retrying...")
                     self._cached_jwt_token = None
                     continue
                 else:
@@ -902,7 +902,7 @@ class AirflowRestApiClientManager:
         # TODO is_numeric check
         if port_str is None:
             port = NetworkUtils.get_free_port()
-            logger.info(f"No port configured, allocated free port {port} from OS")
+            logger.debug(f"No port configured, allocated free port {port} from OS")
         else:
             port = int(port_str)
 
@@ -927,12 +927,12 @@ class AirflowRestApiClientManager:
                 admin_info = json.load(f)
                 basic_auth_username, basic_auth_password =  next(iter(admin_info.items()))
                 if basic_auth_password:
-                    logger.info(f"Using Basic Auth with username: {basic_auth_username}")
+                    logger.debug(f"Using Basic Auth with username: {basic_auth_username}")
                 else:
-                    logger.warning(f"Password not found for user {basic_auth_username} in {auth_manager_passwords_file}")
+                    logger.debug(f"Password not found for user {basic_auth_username} in {auth_manager_passwords_file}")
         except Exception as e:
             import traceback
-            logger.warning(f"Failed to read password file {auth_manager_passwords_file}: {e}. Full traceback:\n{traceback.format_exc()}")
+            logger.debug(f"Failed to read password file {auth_manager_passwords_file}: {e}. Full traceback:\n{traceback.format_exc()}")
 
 
         if (not basic_auth_username or not basic_auth_password) and (not jwt_secret and (core_api_jwt_audience or execution_api_jwt_audience)):
@@ -980,15 +980,15 @@ class AirflowRestApiClientManager:
             cached_client = cls._async_clients[profile.name]
             # Check if the underlying httpx client is still open
             if not cached_client._client.is_closed:
-                logger.info(f"Reusing cached AirflowRestApiClientAsync for profile {profile.name}")
+                logger.debug(f"Reusing cached AirflowRestApiClientAsync for profile {profile.name}")
                 return cached_client
             else:
                 # Client was closed, remove from cache and create new one
-                logger.warning(f"Cached AirflowRestApiClientAsync for profile {profile.name} was closed, creating new one")
+                logger.debug(f"Cached AirflowRestApiClientAsync for profile {profile.name} was closed, creating new one")
                 del cls._async_clients[profile.name]
 
-        logger.info(f"Creating AirflowRestApiClientAsync for profile {profile.name} at {config['host']}:{config['port']}")
-        logger.info(f"Auth config: jwt_secret={'set' if config['jwt_secret'] else 'not set'}, basic_auth={'set' if config['basic_auth_username'] and config['basic_auth_password'] else 'not set'}")
+        logger.debug(f"Creating AirflowRestApiClientAsync for profile {profile.name} at {config['host']}:{config['port']}")
+        logger.debug(f"Auth config: jwt_secret={'set' if config['jwt_secret'] else 'not set'}, basic_auth={'set' if config['basic_auth_username'] and config['basic_auth_password'] else 'not set'}")
 
         # Create and cache the async client
         client = AirflowRestApiClientAsync(
@@ -1027,15 +1027,15 @@ class AirflowRestApiClientManager:
             cached_client = cls._sync_clients[profile.name]
             # Check if the underlying httpx client is still open
             if not cached_client._client.is_closed:
-                logger.info(f"Reusing cached AirflowRestApiClientSync for profile {profile.name}")
+                logger.debug(f"Reusing cached AirflowRestApiClientSync for profile {profile.name}")
                 return cached_client
             else:
                 # Client was closed, remove from cache and create new one
-                logger.warning(f"Cached AirflowRestApiClientSync for profile {profile.name} was closed, creating new one")
+                logger.debug(f"Cached AirflowRestApiClientSync for profile {profile.name} was closed, creating new one")
                 del cls._sync_clients[profile.name]
 
-        logger.info(f"Creating AirflowRestApiClientSync for profile {profile.name} at {config['host']}:{config['port']}")
-        logger.info(f"Auth config: jwt_secret={'set' if config['jwt_secret'] else 'not set'}, basic_auth={'set' if config['basic_auth_username'] and config['basic_auth_password'] else 'not set'}")
+        logger.debug(f"Creating AirflowRestApiClientSync for profile {profile.name} at {config['host']}:{config['port']}")
+        logger.debug(f"Auth config: jwt_secret={'set' if config['jwt_secret'] else 'not set'}, basic_auth={'set' if config['basic_auth_username'] and config['basic_auth_password'] else 'not set'}")
 
         # Create and cache the sync client
         client = AirflowRestApiClientSync(
@@ -1079,15 +1079,15 @@ class AirflowRestApiClientManager:
             aiida_profile: Profile to clear (if None, clears all)
         """
         if aiida_profile is None:
-            logger.info("Clearing all cached AirflowRestApiClient instances")
+            logger.debug("Clearing all cached AirflowRestApiClient instances")
             cls._async_clients.clear()
             cls._sync_clients.clear()
         else:
             if aiida_profile in cls._async_clients:
-                logger.info(f"Clearing cached AirflowRestApiClientAsync for profile {aiida_profile}")
+                logger.debug(f"Clearing cached AirflowRestApiClientAsync for profile {aiida_profile}")
                 del cls._async_clients[aiida_profile]
             if aiida_profile in cls._sync_clients:
-                logger.info(f"Clearing cached AirflowRestApiClientSync for profile {aiida_profile}")
+                logger.debug(f"Clearing cached AirflowRestApiClientSync for profile {aiida_profile}")
                 del cls._sync_clients[aiida_profile]
 
 
