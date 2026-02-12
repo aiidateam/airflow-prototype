@@ -73,10 +73,9 @@ class AiidaDagBundle(LocalDagBundle):
             # Get the package path
             if hasattr(module, '__path__'):
                 # It's a package, use its directory
-                path = Path(module.__file__).parent
+                path = module.__path__[0]
             else:
-                # It's a single module, use its parent directory
-                path = Path(module.__file__).parent
+                raise ValueError("Pleas contact developer.")
 
             log.info(f"Using DAG path: {path}")
             return str(path)
