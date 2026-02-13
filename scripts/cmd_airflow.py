@@ -13,7 +13,6 @@ Example usage:
 """
 
 import sys
-import os
 import subprocess
 from airflow_provider_aiida.aiida_core import load_profile
 

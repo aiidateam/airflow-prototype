@@ -37,6 +37,9 @@ Source = "..." # TODO
 file = "README.md"
 content-type = "text/markdown"
 
+[project.scripts]
+airflow-provider-aiida-triggerer-service = "airflow_provider_aiida.aiida_core.engine.daemon.triggerer_service:main"
+
 [project.entry-points.apache_airflow_provider]
 provider_info = "airflow_provider_aiida.__init__:get_provider_info"
 
@@ -54,6 +57,7 @@ python = "3.11"
 
 [tool.hatch.envs.hatch-test]
 default-args = []
+installer = "uv"
 dependencies = [
     "pytest>=7.0",
     "pytest-mock>=3.10",
@@ -83,9 +87,6 @@ AIRFLOW_PROVIDER_AIIDA__TESTS__AIRFLOW_POSTGRES_PASSWORD = "password"
 setup-profile = [
   "python scripts/cmd_profile_create.py --postgres-host {env:POSTGRES_HOST} --postgres-port {env:POSTGRES_HOST_PORT} --postgres-user {env:POSTGRES_USER} --postgres-password {env:POSTGRES_PASSWORD} --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} --aiida-password {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIRFLOW_POSTGRES_PASSWORD}",
 ]
-reserialize = [
-  "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} dags reserialize --bundle-name aiida_dags",
-]
 
 teardown-profile = [
   "python scripts/cmd_profile_delete.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} --postgres-user {env:POSTGRES_USER} --postgres-password {env:POSTGRES_PASSWORD}"
@@ -95,6 +96,11 @@ teardown-profile = [
 start-psql-service = "docker compose -f docker-compose.test.yml up -d"
 stop-psql-service = "docker compose -f docker-compose.test.yml down -v"
 status-psql-service = "docker ps"
+
+# Daemon commands
+daemon-start = "python scripts/cmd_daemon_start.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE}"
+daemon-stop = "python scripts/cmd_daemon_stop.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE}"
+daemon-status = "python scripts/cmd_daemon_status.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE}"
 
 # Start individual Airflow services (for manual testing)
 scheduler = "python scripts/cmd_airflow.py --profile-name {env:AIRFLOW_PROVIDER_AIIDA__TESTS__AIIDA_PROFILE} scheduler"
@@ -107,6 +113,13 @@ unit-tests = "pytest -m 'not integration' {args:{root}/tests}"
 integration-tests = "pytest -m 'integration' {args:{root}/tests}"
 # Default test runner - excludes integration tests, only runs tests/ directory
 run = "pytest {args:{root}/tests}"
+
+kill-zombies = [
+   "pkill -f 'airflow dag-processor'",
+   "pkill -f 'airflow api-server'",
+   "pkill -f 'airflow scheduler'",
+   "pkill -f 'airflow triggerer'",
+]
 
 # Clean test artifacts
 # NOTE: Only use after services have been stopped to
